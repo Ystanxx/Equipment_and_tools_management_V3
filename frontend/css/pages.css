@@ -1,0 +1,58 @@
+/* ===== Login page specifics ===== */
+.login-hero { display: flex; flex-direction: column; gap: 10px; }
+.login-hero__title { font-size: 2.125rem; font-weight: 600; letter-spacing: -0.5px; }
+.login-hero__desc { font-size: 0.875rem; color: var(--muted); line-height: 1.45; }
+
+.login-card { border-color: #B59479; }
+.login-card .card__title { font-size: 1.125rem; font-weight: 600; }
+.login-card .card__desc { font-size: 0.8125rem; color: var(--muted); }
+
+.login-hint { display: flex; justify-content: space-between; align-items: center; font-size: 0.6875rem; }
+
+/* ===== Asset list card (mobile) ===== */
+.asset-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.asset-card__header { display: flex; justify-content: space-between; align-items: flex-start; }
+.asset-card__title { font-weight: 600; font-size: 0.9375rem; }
+.asset-card__code { font-size: 0.75rem; color: var(--muted); }
+.asset-card__footer { display: flex; justify-content: space-between; align-items: center; }
+.asset-card__meta { font-size: 0.75rem; color: var(--muted); }
+
+/* ===== Filter chips row ===== */
+.chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.chip-row::-webkit-scrollbar { display: none; }
+
+/* ===== Dashboard stat highlight ===== */
+.stat-card--accent { border-left: 3px solid var(--accent); }
+.stat-card--success { border-left: 3px solid var(--success); }
+.stat-card--warning { border-left: 3px solid var(--warning); }
+
+/* ===== User list PC layout ===== */
+.user-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--panel-alt);
+  border-radius: var(--radius-input);
+}
+.user-row__info { display: flex; flex-direction: column; gap: 2px; }
+.user-row__name { font-size: 0.875rem; font-weight: 500; }
+.user-row__meta { font-size: 0.75rem; color: var(--muted); }
+
+/* ===== Registration pending page ===== */
+.pending-page {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 80vh; text-align: center; gap: 16px;
+}
+.pending-page__icon { font-size: 3rem; }
+.pending-page__title { font-size: 1.5rem; font-weight: 600; }
+.pending-page__desc { color: var(--muted); max-width: 320px; }
