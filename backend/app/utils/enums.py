@@ -1,0 +1,87 @@
+import enum
+
+
+class UserRole(str, enum.Enum):
+    USER = "USER"
+    ASSET_ADMIN = "ASSET_ADMIN"
+    SUPER_ADMIN = "SUPER_ADMIN"
+
+
+class UserStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+
+
+class RegistrationStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class AssetType(str, enum.Enum):
+    DEVICE = "DEVICE"
+    TOOL = "TOOL"
+
+
+class AssetStatus(str, enum.Enum):
+    IN_STOCK = "IN_STOCK"
+    PENDING_BORROW_APPROVAL = "PENDING_BORROW_APPROVAL"
+    BORROWED = "BORROWED"
+    PENDING_RETURN_APPROVAL = "PENDING_RETURN_APPROVAL"
+    LOST = "LOST"
+    DAMAGED = "DAMAGED"
+    DISABLED = "DISABLED"
+    # V2+ 预留
+    # MAINTENANCE = "MAINTENANCE"
+    # SCRAPPED = "SCRAPPED"
+    # FROZEN = "FROZEN"
+
+
+class PhotoType(str, enum.Enum):
+    INVENTORY = "INVENTORY"
+    BORROW_ORDER = "BORROW_ORDER"
+    RETURN_ITEM = "RETURN_ITEM"
+    INCIDENT = "INCIDENT"
+
+
+class BorrowOrderStatus(str, enum.Enum):
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    PARTIALLY_APPROVED = "PARTIALLY_APPROVED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    READY_FOR_PICKUP = "READY_FOR_PICKUP"
+    DELIVERED = "DELIVERED"
+    PARTIALLY_RETURNED = "PARTIALLY_RETURNED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+class ApprovalTaskStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    SKIPPED = "SKIPPED"
+
+
+class ReturnOrderStatus(str, enum.Enum):
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    PARTIALLY_APPROVED = "PARTIALLY_APPROVED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    COMPLETED = "COMPLETED"
+
+
+class ReturnItemCondition(str, enum.Enum):
+    GOOD = "GOOD"
+    PARTIAL_LOSS = "PARTIAL_LOSS"
+    FULL_LOSS = "FULL_LOSS"
+    DAMAGED = "DAMAGED"
+
+
+class DamageType(str, enum.Enum):
+    SHELL_BROKEN = "SHELL_BROKEN"
+    FUNCTION_ERROR = "FUNCTION_ERROR"
+    ACCESSORY_DAMAGED = "ACCESSORY_DAMAGED"
+    BOOT_BUT_NOT_WORKING = "BOOT_BUT_NOT_WORKING"
+    OTHER = "OTHER"
