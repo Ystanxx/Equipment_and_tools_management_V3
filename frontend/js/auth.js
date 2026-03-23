@@ -129,6 +129,7 @@ async function handleLogin() {
     Api.setToken(res.data.access_token);
     const meRes = await Api.me();
     Api.setUser(meRes.data);
+    await Api.bootstrapSystemConfigs();
 
     const user = meRes.data;
     if (user.status === 'PENDING') {

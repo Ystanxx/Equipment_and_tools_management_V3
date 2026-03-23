@@ -88,7 +88,7 @@ Router.register('return-submit', async (params) => {
             </div>
             <div style="margin-left:28px;margin-top:6px;">
               <label class="form-label">归还照片 <span class="form-required">*必填，每件单独拍照</span></label>
-              <input type="file" class="return-photos" data-idx="${idx}" accept="image/jpeg,image/png,image/webp,image/gif" multiple
+              <input type="file" class="return-photos" data-idx="${idx}" accept="image/jpeg,image/png,image/webp" multiple
                      style="font-size:0.8125rem;">
               <div class="return-photo-preview" data-idx="${idx}" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             </div>
@@ -282,7 +282,7 @@ Router.register('return-detail', async (params) => {
                     <td><span class="chip ${cm.class}">${cm.label}</span></td>
                     <td class="text-sm">${Utils.escapeHtml(i.admin_name_snapshot)}</td>
                     <td class="text-sm text-muted">${Utils.escapeHtml(i.damage_description || '-')}</td>
-                    <td>${photos.length > 0 ? photos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" style="width:40px;height:40px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join(' ') : '<span class="text-xs text-muted">无照片</span>'}</td>
+                    <td>${photos.length > 0 ? photos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" style="width:40px;height:40px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join(' ') : '<span class="text-xs text-muted">无照片</span>'}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -480,7 +480,7 @@ Router.register('return-approvals', async (params) => {
     const itemRows = (t.item_details || []).map(d => {
       const cm = conditionMap[d.condition] || { label: d.condition, class: '' };
       const photoHtml = (d.photos || []).map(p =>
-        `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" style="width:48px;height:48px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
+        `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" style="width:48px;height:48px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
       ).join(' ');
       return `
         <div style="padding:8px 0;border-bottom:1px solid var(--panel);">

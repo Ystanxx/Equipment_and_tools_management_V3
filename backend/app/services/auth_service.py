@@ -6,6 +6,7 @@ from app.models.registration_request import RegistrationRequest
 from app.core.security import hash_password, verify_password, create_access_token
 from app.utils.enums import UserStatus, RegistrationStatus
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
+from app.services import audit_service
 
 
 def register_user(db: Session, req: RegisterRequest) -> User:
@@ -30,6 +31,16 @@ def register_user(db: Session, req: RegisterRequest) -> User:
 
     reg_request = RegistrationRequest(user_id=user.id)
     db.add(reg_request)
+    db.flush()
+    audit_service.log(
+        db,
+        user.id,
+        "REGISTRATION_SUBMIT",
+        "RegistrationRequest",
+        reg_request.id,
+        description=f"用户 {user.username} 提交注册申请",
+        snapshot={"username": user.username, "email": user.email},
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -44,4 +55,6 @@ def login_user(db: Session, req: LoginRequest) -> TokenResponse:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已停用")
 
     access_token = create_access_token(data={"sub": str(user.id)})
+    audit_service.log(db, user.id, "LOGIN_SUCCESS", "User", user.id, description=f"用户 {user.username} 登录成功")
+    db.commit()
     return TokenResponse(access_token=access_token)

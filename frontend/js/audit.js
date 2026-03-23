@@ -22,6 +22,7 @@ Router.register('audit-logs', async (params) => {
     RETURN_ORDER_CREATE: '提交归还单',
     RETURN_TASK_APPROVE: '通过归还审批',
     RETURN_TASK_REJECT: '驳回归还审批',
+    SYSTEM_CONFIG_UPDATE: '更新系统配置',
   };
 
   const tableRows = logs.map(l => {

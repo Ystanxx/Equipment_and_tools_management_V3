@@ -1,4 +1,12 @@
-const API_BASE = '/api/v1';
+function resolveApiBase() {
+  if (window.location.protocol === 'file:') {
+    return 'http://127.0.0.1:8000/api/v1';
+  }
+  return '/api/v1';
+}
+
+const API_BASE = resolveApiBase();
+const SYSTEM_CONFIG_CACHE_KEY = 'system_configs';
 
 const Api = {
   getToken() { return localStorage.getItem('token'); },
@@ -10,7 +18,21 @@ const Api = {
     return u ? JSON.parse(u) : null;
   },
   setUser(u) { localStorage.setItem('user', JSON.stringify(u)); },
-  clearUser() { localStorage.removeItem('user'); },
+  clearUser() {
+    localStorage.removeItem('user');
+    this.clearSystemConfigCache();
+  },
+
+  getSystemConfigCache() {
+    const raw = localStorage.getItem(SYSTEM_CONFIG_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  },
+  setSystemConfigCache(configs) { localStorage.setItem(SYSTEM_CONFIG_CACHE_KEY, JSON.stringify(configs)); },
+  clearSystemConfigCache() { localStorage.removeItem(SYSTEM_CONFIG_CACHE_KEY); },
+  getSystemConfig(key, fallback = null) {
+    const configs = this.getSystemConfigCache();
+    return Object.prototype.hasOwnProperty.call(configs, key) ? configs[key] : fallback;
+  },
 
   async request(method, path, body = null, params = null) {
     let url = API_BASE + path;
@@ -39,11 +61,26 @@ const Api = {
       throw new Error('登录已过期');
     }
 
-    const json = await res.json();
+    const json = await this.parseResponse(res);
     if (!res.ok) {
       throw new Error(json.detail || json.message || '请求失败');
     }
     return json;
+  },
+
+  async parseResponse(res) {
+    const text = await res.text();
+    if (!text) return {};
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      const lowered = text.trim().toLowerCase();
+      if (lowered.startsWith('<!doctype') || lowered.startsWith('<html')) {
+        throw new Error(`接口 ${res.url} 返回了 HTML 页面。通常是直接打开了前端文件，或者后端仍在运行旧版本代码，请完整重启服务。`);
+      }
+      throw new Error(`接口返回了非 JSON 响应，状态码 ${res.status}`);
+    }
   },
 
   get(path, params) { return this.request('GET', path, null, params); },
@@ -63,7 +100,7 @@ const Api = {
 
   // Users
   listUsers(params) { return this.get('/users', params); },
-  getUser(id) { return this.get(`/users/${id}`); },
+  getUserById(id) { return this.get(`/users/${id}`); },
   updateRole(id, role) { return this.put(`/users/${id}/role`, { role }); },
   updateUserStatus(id, status) { return this.put(`/users/${id}/status`, { status }); },
 
@@ -102,8 +139,9 @@ const Api = {
   getCart() { return JSON.parse(localStorage.getItem('borrow_cart') || '[]'); },
   addToCart(asset) {
     const cart = this.getCart();
+    const maxItems = this.getSystemConfig('borrow_order_max_items', 20);
     if (cart.find(i => i.id === asset.id)) return false;
-    if (cart.length >= 20) return false;
+    if (cart.length >= maxItems) return false;
     cart.push({ id: asset.id, asset_code: asset.asset_code, name: asset.name, location_name: asset.location_name || '' });
     localStorage.setItem('borrow_cart', JSON.stringify(cart));
     return true;
@@ -131,7 +169,7 @@ const Api = {
     if (token) headers['Authorization'] = 'Bearer ' + token;
     const res = await fetch(API_BASE + '/attachments', { method: 'POST', headers, body: form });
     if (res.status === 401) { this.clearToken(); this.clearUser(); Router.navigate('login'); throw new Error('登录已过期'); }
-    const json = await res.json();
+    const json = await this.parseResponse(res);
     if (!res.ok) throw new Error(json.detail || '上传失败');
     return json;
   },
@@ -144,4 +182,25 @@ const Api = {
   listReturnApprovalTasks(params) { return this.get('/return-approval-tasks', params); },
   approveReturnTask(id, comment) { return this.post(`/return-approval-tasks/${id}/approve`, { comment }); },
   rejectReturnTask(id, comment) { return this.post(`/return-approval-tasks/${id}/reject`, { comment }); },
+
+  // System Configs
+  listSystemConfigs() { return this.get('/system-configs'); },
+  updateSystemConfigs(values) { return this.put('/system-configs', { values }); },
+  async bootstrapSystemConfigs() {
+    if (!this.getToken()) {
+      this.clearSystemConfigCache();
+      return {};
+    }
+    try {
+      const res = await this.listSystemConfigs();
+      const cache = {};
+      (res.data || []).forEach(item => { cache[item.key] = item.value; });
+      this.setSystemConfigCache(cache);
+      return cache;
+    } catch (error) {
+      console.warn('加载系统配置失败，已回退默认配置', error);
+      this.clearSystemConfigCache();
+      return {};
+    }
+  },
 };
