@@ -36,6 +36,26 @@
 .sidebar__link--active:hover { background: var(--accent-hover); }
 .sidebar__link svg { width: 18px; height: 18px; flex-shrink: 0; }
 
+.sidebar__divider {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 14px 14px 4px;
+  margin-top: 4px;
+}
+.sidebar__user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.sidebar__user-name { font-size: 0.8125rem; font-weight: 500; }
+.sidebar__user-role { font-size: 0.6875rem; color: var(--muted); }
+
 .main-content {
   flex: 1;
   padding: 24px 28px 24px 24px;
@@ -105,6 +125,8 @@
   .sidebar__brand { display: none; }
   .sidebar__nav { flex-direction: row; flex-wrap: nowrap; }
   .sidebar__link { white-space: nowrap; padding: 8px 12px; font-size: 0.8125rem; }
+  .sidebar__divider { display: none; }
+  .sidebar__user-info { display: none; }
   .main-content { padding: 16px; }
   .content-row { flex-direction: column; }
   .content-side { width: 100%; }

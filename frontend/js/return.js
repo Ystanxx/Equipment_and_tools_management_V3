@@ -87,8 +87,8 @@ Router.register('return-submit', async (params) => {
               </div>
             </div>
             <div style="margin-left:28px;margin-top:6px;">
-              <label class="form-label">归还照片（可多选）</label>
-              <input type="file" class="return-photos" data-idx="${idx}" accept="image/*" multiple
+              <label class="form-label">归还照片 <span class="form-required">*必填，每件单独拍照</span></label>
+              <input type="file" class="return-photos" data-idx="${idx}" accept="image/jpeg,image/png,image/webp,image/gif" multiple
                      style="font-size:0.8125rem;">
               <div class="return-photo-preview" data-idx="${idx}" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             </div>
@@ -161,6 +161,19 @@ Router.register('return-submit', async (params) => {
 
       if (items.length === 0) {
         errEl.textContent = '请至少选择一件设备';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      // Validate photos mandatory per item
+      let missingPhoto = false;
+      document.querySelectorAll('.return-check:checked').forEach(cb => {
+        const idx = cb.dataset.idx;
+        const fileInput = document.querySelector(`.return-photos[data-idx="${idx}"]`);
+        if (!fileInput || fileInput.files.length === 0) missingPhoto = true;
+      });
+      if (missingPhoto) {
+        errEl.textContent = '每件归还设备必须上传照片（必填项）';
         errEl.classList.remove('hidden');
         return;
       }
@@ -269,7 +282,7 @@ Router.register('return-detail', async (params) => {
                     <td><span class="chip ${cm.class}">${cm.label}</span></td>
                     <td class="text-sm">${Utils.escapeHtml(i.admin_name_snapshot)}</td>
                     <td class="text-sm text-muted">${Utils.escapeHtml(i.damage_description || '-')}</td>
-                    <td>${photos.length > 0 ? photos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;cursor:pointer;" onclick="window.open('/uploads/${Utils.escapeHtml(p.file_path)}','_blank')">`).join(' ') : '<span class="text-xs text-muted">无照片</span>'}</td>
+                    <td>${photos.length > 0 ? photos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" style="width:40px;height:40px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join(' ') : '<span class="text-xs text-muted">无照片</span>'}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -467,7 +480,7 @@ Router.register('return-approvals', async (params) => {
     const itemRows = (t.item_details || []).map(d => {
       const cm = conditionMap[d.condition] || { label: d.condition, class: '' };
       const photoHtml = (d.photos || []).map(p =>
-        `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--line);" onclick="window.open('/uploads/${Utils.escapeHtml(p.file_path)}','_blank')">`
+        `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" style="width:48px;height:48px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
       ).join(' ');
       return `
         <div style="padding:8px 0;border-bottom:1px solid var(--panel);">
