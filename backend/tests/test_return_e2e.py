@@ -1,101 +1,163 @@
-"""Phase 3 end-to-end return flow test (run against live server)."""
-import httpx
+"""手动联调归还流程脚本。"""
+
+import os
 import time
 
-base = "http://localhost:8000/api/v1"
-tag = str(int(time.time()))[-6:]
+import httpx
+import pytest
 
-# 1. Login as admin
-r = httpx.post(f"{base}/auth/login", json={"username": "admin", "password": "admin"})
-token = r.json()["data"]["access_token"]
-h = {"Authorization": f"Bearer {token}"}
-r2 = httpx.get(f"{base}/auth/me", headers=h)
-admin_user_id = r2.json()["data"]["id"]
-print(f"1. Login OK, admin_id={admin_user_id}")
 
-# 2. Create category + location
-r = httpx.post(f"{base}/asset-categories", json={"name": f"RT{tag}"}, headers=h)
-cat_id = r.json()["data"]["id"]
-r = httpx.post(f"{base}/storage-locations", json={"name": f"RT{tag}", "code": f"RT{tag}", "building": "C", "room": tag}, headers=h)
-loc_id = r.json()["data"]["id"]
-print("2. Category + Location created")
+def _run_live_return_e2e() -> None:
+    base = "http://localhost:8000/api/v1"
+    tag = str(int(time.time()))[-6:]
 
-# 3. Create 3 assets
-assets = []
-for i in range(3):
-    r = httpx.post(f"{base}/assets", json={
-        "name": f"ReturnTest{tag}_{i+1}", "asset_type": "DEVICE",
-        "category_id": cat_id, "location_id": loc_id, "admin_id": admin_user_id
-    }, headers=h)
-    assert r.status_code == 200, f"Asset create failed: {r.text}"
-    assets.append(r.json()["data"]["id"])
-print(f"3. Created {len(assets)} assets")
+    # 1. 管理员登录
+    login_response = httpx.post(f"{base}/auth/login", json={"username": "admin", "password": "admin"})
+    token = login_response.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
-# 4. Submit borrow order
-r = httpx.post(f"{base}/borrow-orders", json={"asset_ids": assets, "purpose": "return E2E"}, headers=h)
-assert r.status_code == 200, f"Borrow submit failed: {r.text}"
-bo = r.json()["data"]
-bo_id = bo["id"]
-task_id = bo["approval_tasks"][0]["id"]
-print(f"4. Borrow order: {bo['order_no']} status={bo['status']}")
+    me_response = httpx.get(f"{base}/auth/me", headers=headers)
+    admin_user_id = me_response.json()["data"]["id"]
+    print(f"1. Login OK, admin_id={admin_user_id}")
 
-# 5. Approve + deliver
-r = httpx.post(f"{base}/borrow-approval-tasks/{task_id}/approve", json={}, headers=h)
-assert r.status_code == 200
-r = httpx.post(f"{base}/borrow-orders/{bo_id}/deliver", json={}, headers=h)
-assert r.status_code == 200
-bo_status = r.json()["data"]["status"]
-print(f"5. Approved + delivered: status={bo_status}")
-assert bo_status == "DELIVERED"
+    # 2. 创建分类和位置
+    category_response = httpx.post(f"{base}/asset-categories", json={"name": f"RT{tag}"}, headers=headers)
+    category_id = category_response.json()["data"]["id"]
 
-# 6. Partial return (first 2 items)
-bo_detail = httpx.get(f"{base}/borrow-orders/{bo_id}", headers=h).json()["data"]
-items_to_return = [
-    {"borrow_order_item_id": bo_detail["items"][0]["id"], "asset_id": bo_detail["items"][0]["asset_id"], "condition": "GOOD"},
-    {"borrow_order_item_id": bo_detail["items"][1]["id"], "asset_id": bo_detail["items"][1]["asset_id"], "condition": "DAMAGED", "damage_description": "screen cracked"},
-]
-r = httpx.post(f"{base}/return-orders", json={"borrow_order_id": bo_id, "items": items_to_return, "remark": "partial"}, headers=h)
-assert r.status_code == 200, f"Return submit failed: {r.text}"
-ro = r.json()["data"]
-ro_id = ro["id"]
-print(f"6. Return order: {ro['order_no']} status={ro['status']} items={ro['item_count']} tasks={len(ro['approval_tasks'])}")
+    location_response = httpx.post(
+        f"{base}/storage-locations",
+        json={"name": f"RT{tag}", "code": f"RT{tag}", "building": "C", "room": tag},
+        headers=headers,
+    )
+    location_id = location_response.json()["data"]["id"]
+    print("2. Category + Location created")
 
-# 7. Approve return task
-rt_task_id = ro["approval_tasks"][0]["id"]
-r = httpx.post(f"{base}/return-approval-tasks/{rt_task_id}/approve", json={"comment": "ok"}, headers=h)
-assert r.status_code == 200, f"Return approve failed: {r.text}"
-print(f"7. Return task approved: {r.json()['data']['status']}")
+    # 3. 创建 3 台设备
+    asset_ids: list[str] = []
+    for index in range(3):
+        asset_response = httpx.post(
+            f"{base}/assets",
+            json={
+                "name": f"ReturnTest{tag}_{index + 1}",
+                "asset_type": "DEVICE",
+                "category_id": category_id,
+                "location_id": location_id,
+                "admin_id": admin_user_id,
+            },
+            headers=headers,
+        )
+        assert asset_response.status_code == 200, f"Asset create failed: {asset_response.text}"
+        asset_ids.append(asset_response.json()["data"]["id"])
+    print(f"3. Created {len(asset_ids)} assets")
 
-# 8. Check return order status -> COMPLETED
-r = httpx.get(f"{base}/return-orders/{ro_id}", headers=h)
-ro_status = r.json()["data"]["status"]
-print(f"8. Return order status: {ro_status}")
-assert ro_status == "COMPLETED"
+    # 4. 提交借用单
+    borrow_response = httpx.post(
+        f"{base}/borrow-orders",
+        json={"asset_ids": asset_ids, "purpose": "return E2E"},
+        headers=headers,
+    )
+    assert borrow_response.status_code == 200, f"Borrow submit failed: {borrow_response.text}"
+    borrow_order = borrow_response.json()["data"]
+    borrow_order_id = borrow_order["id"]
+    task_id = borrow_order["approval_tasks"][0]["id"]
+    print(f"4. Borrow order: {borrow_order['order_no']} status={borrow_order['status']}")
 
-# 9. Check borrow order status -> PARTIALLY_RETURNED
-r = httpx.get(f"{base}/borrow-orders/{bo_id}", headers=h)
-bo_status2 = r.json()["data"]["status"]
-print(f"9. Borrow order status after partial return: {bo_status2}")
-assert bo_status2 == "PARTIALLY_RETURNED"
+    # 5. 审批并交付
+    approve_response = httpx.post(f"{base}/borrow-approval-tasks/{task_id}/approve", json={}, headers=headers)
+    assert approve_response.status_code == 200
 
-# 10. Return last item (FULL_LOSS)
-items_to_return2 = [
-    {"borrow_order_item_id": bo_detail["items"][2]["id"], "asset_id": bo_detail["items"][2]["asset_id"], "condition": "FULL_LOSS"},
-]
-r = httpx.post(f"{base}/return-orders", json={"borrow_order_id": bo_id, "items": items_to_return2}, headers=h)
-assert r.status_code == 200, f"Return2 submit failed: {r.text}"
-ro2 = r.json()["data"]
-rt2_task_id = ro2["approval_tasks"][0]["id"]
-print(f"10. Return order 2: {ro2['order_no']}")
+    deliver_response = httpx.post(f"{base}/borrow-orders/{borrow_order_id}/deliver", json={}, headers=headers)
+    assert deliver_response.status_code == 200
+    delivered_status = deliver_response.json()["data"]["status"]
+    print(f"5. Approved + delivered: status={delivered_status}")
+    assert delivered_status == "DELIVERED"
 
-# 11. Approve second return
-r = httpx.post(f"{base}/return-approval-tasks/{rt2_task_id}/approve", json={}, headers=h)
-assert r.status_code == 200
+    # 6. 部分归还
+    borrow_detail = httpx.get(f"{base}/borrow-orders/{borrow_order_id}", headers=headers).json()["data"]
+    items_to_return = [
+        {
+            "borrow_order_item_id": borrow_detail["items"][0]["id"],
+            "asset_id": borrow_detail["items"][0]["asset_id"],
+            "condition": "GOOD",
+        },
+        {
+            "borrow_order_item_id": borrow_detail["items"][1]["id"],
+            "asset_id": borrow_detail["items"][1]["asset_id"],
+            "condition": "DAMAGED",
+            "damage_description": "screen cracked",
+        },
+    ]
+    return_response = httpx.post(
+        f"{base}/return-orders",
+        json={"borrow_order_id": borrow_order_id, "items": items_to_return, "remark": "partial"},
+        headers=headers,
+    )
+    assert return_response.status_code == 200, f"Return submit failed: {return_response.text}"
+    return_order = return_response.json()["data"]
+    return_order_id = return_order["id"]
+    return_task_id = return_order["approval_tasks"][0]["id"]
+    print(f"6. Return order: {return_order['order_no']} status={return_order['status']} items={return_order['item_count']} tasks={len(return_order['approval_tasks'])}")
 
-# 12. Borrow order should now be COMPLETED
-r = httpx.get(f"{base}/borrow-orders/{bo_id}", headers=h)
-bo_final = r.json()["data"]["status"]
-print(f"11-12. Borrow order final status: {bo_final}")
-assert bo_final == "COMPLETED"
+    # 7. 审批归还任务
+    return_approve_response = httpx.post(
+        f"{base}/return-approval-tasks/{return_task_id}/approve",
+        json={"comment": "ok"},
+        headers=headers,
+    )
+    assert return_approve_response.status_code == 200, f"Return approve failed: {return_approve_response.text}"
+    print(f"7. Return task approved: {return_approve_response.json()['data']['status']}")
 
-print("\n=== Phase 3 E2E test PASSED ===")
+    # 8. 校验归还单状态
+    return_detail_response = httpx.get(f"{base}/return-orders/{return_order_id}", headers=headers)
+    return_status = return_detail_response.json()["data"]["status"]
+    print(f"8. Return order status: {return_status}")
+    assert return_status == "COMPLETED"
+
+    # 9. 校验借用单状态
+    borrow_partial_response = httpx.get(f"{base}/borrow-orders/{borrow_order_id}", headers=headers)
+    borrow_partial_status = borrow_partial_response.json()["data"]["status"]
+    print(f"9. Borrow order status after partial return: {borrow_partial_status}")
+    assert borrow_partial_status == "PARTIALLY_RETURNED"
+
+    # 10. 归还最后一件
+    last_item_payload = [
+        {
+            "borrow_order_item_id": borrow_detail["items"][2]["id"],
+            "asset_id": borrow_detail["items"][2]["asset_id"],
+            "condition": "FULL_LOSS",
+        },
+    ]
+    second_return_response = httpx.post(
+        f"{base}/return-orders",
+        json={"borrow_order_id": borrow_order_id, "items": last_item_payload},
+        headers=headers,
+    )
+    assert second_return_response.status_code == 200, f"Return2 submit failed: {second_return_response.text}"
+    second_return = second_return_response.json()["data"]
+    second_task_id = second_return["approval_tasks"][0]["id"]
+    print(f"10. Return order 2: {second_return['order_no']}")
+
+    # 11. 审批第二次归还
+    second_approve_response = httpx.post(
+        f"{base}/return-approval-tasks/{second_task_id}/approve",
+        json={},
+        headers=headers,
+    )
+    assert second_approve_response.status_code == 200
+
+    # 12. 借用单应完成
+    borrow_final_response = httpx.get(f"{base}/borrow-orders/{borrow_order_id}", headers=headers)
+    borrow_final_status = borrow_final_response.json()["data"]["status"]
+    print(f"11-12. Borrow order final status: {borrow_final_status}")
+    assert borrow_final_status == "COMPLETED"
+
+    print("\n=== Phase 3 E2E test PASSED ===")
+
+
+@pytest.mark.skipif(os.getenv("RUN_LIVE_E2E") != "1", reason="需要启动本地服务并显式设置 RUN_LIVE_E2E=1")
+def test_return_e2e_live() -> None:
+    _run_live_return_e2e()
+
+
+if __name__ == "__main__":
+    _run_live_return_e2e()

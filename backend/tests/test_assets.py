@@ -31,6 +31,16 @@ def test_update_asset(client, auth_headers):
     assert update_res.json()["data"]["brand"] == "Keysight"
 
 
+def test_update_asset_status(client, auth_headers):
+    admin_id = _get_admin_id(client, auth_headers)
+    create_res = client.post("/api/v1/assets", json={"name": "频谱仪", "asset_type": "DEVICE", "admin_id": admin_id}, headers=auth_headers)
+    asset_id = create_res.json()["data"]["id"]
+
+    update_res = client.put(f"/api/v1/assets/{asset_id}", json={"status": "DAMAGED"}, headers=auth_headers)
+    assert update_res.status_code == 200
+    assert update_res.json()["data"]["status"] == "DAMAGED"
+
+
 def _get_admin_id(client, headers):
     me = client.get("/api/v1/auth/me", headers=headers)
     return me.json()["data"]["id"]

@@ -7,21 +7,62 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 const SYSTEM_CONFIG_CACHE_KEY = 'system_configs';
+const AUTH_EXPIRES_AT_KEY = 'auth_expires_at';
 
 const Api = {
-  getToken() { return localStorage.getItem('token'); },
-  setToken(t) { localStorage.setItem('token', t); },
-  clearToken() { localStorage.removeItem('token'); },
-
-  getUser() {
-    const u = localStorage.getItem('user');
-    return u ? JSON.parse(u) : null;
+  getAuthValue(key) {
+    return sessionStorage.getItem(key) || localStorage.getItem(key);
   },
-  setUser(u) { localStorage.setItem('user', JSON.stringify(u)); },
-  clearUser() {
-    localStorage.removeItem('user');
+  getAuthStorage() {
+    if (sessionStorage.getItem('token')) return sessionStorage;
+    if (localStorage.getItem('token')) return localStorage;
+    return null;
+  },
+  clearAuthState() {
+    ['token', 'user', AUTH_EXPIRES_AT_KEY].forEach((key) => {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+    });
     this.clearSystemConfigCache();
   },
+  isAuthExpired() {
+    const expiresAt = this.getAuthValue(AUTH_EXPIRES_AT_KEY);
+    if (!expiresAt) return false;
+    const expiresAtMs = Date.parse(expiresAt);
+    if (Number.isNaN(expiresAtMs)) return false;
+    if (Date.now() < expiresAtMs) return false;
+    this.clearAuthState();
+    return true;
+  },
+  getToken() {
+    if (this.isAuthExpired()) return null;
+    return this.getAuthValue('token');
+  },
+  setToken(t, options = {}) {
+    const storage = options.remember ? localStorage : sessionStorage;
+    sessionStorage.removeItem('token');
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('user');
+    sessionStorage.removeItem(AUTH_EXPIRES_AT_KEY);
+    localStorage.removeItem(AUTH_EXPIRES_AT_KEY);
+    storage.setItem('token', t);
+    if (options.expiresAt) storage.setItem(AUTH_EXPIRES_AT_KEY, options.expiresAt);
+  },
+  clearToken() { this.clearAuthState(); },
+
+  getUser() {
+    if (this.isAuthExpired()) return null;
+    const u = this.getAuthValue('user');
+    return u ? JSON.parse(u) : null;
+  },
+  setUser(u) {
+    const storage = this.getAuthStorage() || sessionStorage;
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('user');
+    storage.setItem('user', JSON.stringify(u));
+  },
+  clearUser() { this.clearAuthState(); },
 
   getSystemConfigCache() {
     const raw = localStorage.getItem(SYSTEM_CONFIG_CACHE_KEY);
@@ -53,15 +94,18 @@ const Api = {
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
 
     const res = await fetch(url, opts);
+    const json = await this.parseResponse(res);
 
     if (res.status === 401) {
-      this.clearToken();
-      this.clearUser();
-      Router.navigate('login');
-      throw new Error('登录已过期');
+      const isLoginRequest = path === '/auth/login';
+      if (!isLoginRequest && token) {
+        this.clearToken();
+        this.clearUser();
+        Router.navigate('login');
+      }
+      throw new Error(json.detail || json.message || (isLoginRequest ? '用户名或密码错误' : '登录已过期'));
     }
 
-    const json = await this.parseResponse(res);
     if (!res.ok) {
       throw new Error(json.detail || json.message || '请求失败');
     }
@@ -92,6 +136,11 @@ const Api = {
   register(data) { return this.post('/auth/register', data); },
   login(data) { return this.post('/auth/login', data); },
   me() { return this.get('/auth/me'); },
+  updateMyEmailPreference(emailNotificationsEnabled) {
+    return this.put('/auth/preferences/email', {
+      email_notifications_enabled: emailNotificationsEnabled,
+    });
+  },
 
   // Registration
   listRegistrations(params) { return this.get('/registration-requests', params); },
@@ -118,10 +167,13 @@ const Api = {
 
   // Assets
   listAssets(params) { return this.get('/assets', params); },
+  listRecentDeletedAssets(limit = 5) { return this.get('/assets/deleted/recent', { limit }); },
   getAsset(id) { return this.get(`/assets/${id}`); },
   createAsset(data) { return this.post('/assets', data); },
   updateAsset(id, data) { return this.put(`/assets/${id}`, data); },
   updateAssetAdmin(id, adminId) { return this.put(`/assets/${id}/admin`, { admin_id: adminId }); },
+  deleteAsset(id) { return this.del(`/assets/${id}`); },
+  restoreAsset(id) { return this.post(`/assets/${id}/restore`); },
 
   // Borrow Orders
   createBorrowOrder(data) { return this.post('/borrow-orders', data); },
@@ -185,7 +237,17 @@ const Api = {
   rejectReturnTask(id, comment) { return this.post(`/return-approval-tasks/${id}/reject`, { comment }); },
 
   // Auth - password
-  changePassword(oldPassword, newPassword) { return this.put('/auth/password', { old_password: oldPassword, new_password: newPassword }); },
+  async changePassword(oldPassword, newPassword) {
+    const payload = { old_password: oldPassword, new_password: newPassword };
+    try {
+      return await this.put('/auth/password', payload);
+    } catch (error) {
+      if (error.message === 'Method Not Allowed') {
+        return this.post('/auth/password', payload);
+      }
+      throw error;
+    }
+  },
 
   // Notifications
   listNotifications(params) { return this.get('/notifications', params); },

@@ -1,6 +1,11 @@
 // ===== Locations Management Page =====
 Router.register('locations', async () => {
   const app = document.getElementById('app');
+  const user = Api.getUser();
+  if (!user || user.role !== 'SUPER_ADMIN') {
+    Utils.showToast('只有超级管理员可以管理位置', 'error');
+    return Router.navigate(user && user.role === 'USER' ? 'asset-list' : 'dashboard');
+  }
   let locations = [];
 
   try {
@@ -39,7 +44,10 @@ Router.register('locations', async () => {
                           data-name="${Utils.escapeHtml(l.name)}" data-building="${Utils.escapeHtml(l.building || '')}"
                           data-room="${Utils.escapeHtml(l.room || '')}" data-cabinet="${Utils.escapeHtml(l.cabinet || '')}"
                           data-shelf="${Utils.escapeHtml(l.shelf || '')}" data-remark="${Utils.escapeHtml(l.remark || '')}">编辑</button>
-                        ${l.is_active ? `<button class="btn btn--outline btn--sm loc-disable-btn" data-id="${l.id}">停用</button>` : ''}
+                        ${l.is_active
+                          ? `<button class="btn btn--outline btn--sm loc-disable-btn" data-id="${l.id}">停用</button>`
+                          : `<button class="btn btn--secondary btn--sm loc-enable-btn" data-id="${l.id}">启用</button>`}
+                        <button class="btn btn--danger btn--sm loc-delete-btn" data-id="${l.id}" data-name="${Utils.escapeHtml(l.name)}">删除</button>
                       </td>
                     </tr>
                   `).join('')}
@@ -120,10 +128,31 @@ Router.register('locations', async () => {
   });
 
   document.querySelectorAll('.loc-disable-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _showApprovalModal('停用位置', '确认停用该存放位置？停用后新建设备将无法选择此位置。', async () => {
-        await Api.deleteLocation(btn.dataset.id);
+    btn.addEventListener('click', async () => {
+      try {
+        await Api.updateLocation(btn.dataset.id, { is_active: false });
         Utils.showToast('位置已停用');
+        Router.navigate('locations');
+      } catch (e) { Utils.showToast(e.message, 'error'); }
+    });
+  });
+
+  // Enable buttons
+  document.querySelectorAll('.loc-enable-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await Api.updateLocation(btn.dataset.id, { is_active: true });
+        Utils.showToast('位置已启用');
+        Router.navigate('locations');
+      } catch (e) { Utils.showToast(e.message, 'error'); }
+    });
+  });
+
+  document.querySelectorAll('.loc-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('删除位置', `确认永久删除位置“${btn.dataset.name}”？删除后不可恢复。`, async () => {
+        await Api.deleteLocation(btn.dataset.id);
+        Utils.showToast('位置已删除');
         Router.navigate('locations');
       });
     });

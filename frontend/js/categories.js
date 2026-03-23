@@ -1,6 +1,11 @@
 // ===== Categories Management Page =====
 Router.register('categories', async () => {
   const app = document.getElementById('app');
+  const user = Api.getUser();
+  if (!user || user.role !== 'SUPER_ADMIN') {
+    Utils.showToast('只有超级管理员可以管理分类', 'error');
+    return Router.navigate(user && user.role === 'USER' ? 'asset-list' : 'dashboard');
+  }
   let categories = [];
 
   try {
@@ -33,7 +38,10 @@ Router.register('categories', async () => {
                       <td>${c.is_active ? '<span class="chip chip--success">启用</span>' : '<span class="chip chip--disabled">停用</span>'}</td>
                       <td>
                         <button class="btn btn--outline btn--sm cat-edit-btn" data-id="${c.id}" data-name="${Utils.escapeHtml(c.name)}" data-desc="${Utils.escapeHtml(c.description || '')}">编辑</button>
-                        ${c.is_active ? `<button class="btn btn--outline btn--sm cat-disable-btn" data-id="${c.id}">停用</button>` : ''}
+                        ${c.is_active
+                          ? `<button class="btn btn--outline btn--sm cat-disable-btn" data-id="${c.id}">停用</button>`
+                          : `<button class="btn btn--secondary btn--sm cat-enable-btn" data-id="${c.id}">启用</button>`}
+                        <button class="btn btn--danger btn--sm cat-delete-btn" data-id="${c.id}" data-name="${Utils.escapeHtml(c.name)}">删除</button>
                       </td>
                     </tr>
                   `).join('')}
@@ -102,10 +110,31 @@ Router.register('categories', async () => {
 
   // Disable buttons with modal
   document.querySelectorAll('.cat-disable-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _showApprovalModal('停用分类', '确认停用该分类？停用后新建设备将无法选择此分类。', async () => {
-        await Api.deleteCategory(btn.dataset.id);
+    btn.addEventListener('click', async () => {
+      try {
+        await Api.updateCategory(btn.dataset.id, { is_active: false });
         Utils.showToast('分类已停用');
+        Router.navigate('categories');
+      } catch (e) { Utils.showToast(e.message, 'error'); }
+    });
+  });
+
+  // Enable buttons
+  document.querySelectorAll('.cat-enable-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await Api.updateCategory(btn.dataset.id, { is_active: true });
+        Utils.showToast('分类已启用');
+        Router.navigate('categories');
+      } catch (e) { Utils.showToast(e.message, 'error'); }
+    });
+  });
+
+  document.querySelectorAll('.cat-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('删除分类', `确认永久删除分类“${btn.dataset.name}”？删除后不可恢复。`, async () => {
+        await Api.deleteCategory(btn.dataset.id);
+        Utils.showToast('分类已删除');
         Router.navigate('categories');
       });
     });

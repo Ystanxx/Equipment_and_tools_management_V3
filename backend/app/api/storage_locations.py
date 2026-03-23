@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_admin_or_super
+from app.core.deps import get_db, require_admin_or_super, require_super_admin
 from app.models.user import User
 from app.schemas.storage_location import LocationCreate, LocationUpdate, LocationOut
 from app.schemas.common import ResponseSchema
@@ -26,7 +26,7 @@ def list_locations(
 def create_location(
     body: LocationCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(require_super_admin),
 ):
     loc = location_service.create_location(db, body)
     return ResponseSchema(data=LocationOut.model_validate(loc), message="位置已创建")
@@ -37,17 +37,17 @@ def update_location(
     loc_id: uuid.UUID,
     body: LocationUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(require_super_admin),
 ):
     loc = location_service.update_location(db, loc_id, body)
     return ResponseSchema(data=LocationOut.model_validate(loc), message="位置已更新")
 
 
-@router.delete("/{loc_id}", response_model=ResponseSchema[LocationOut])
+@router.delete("/{loc_id}", response_model=ResponseSchema[dict])
 def delete_location(
     loc_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(require_super_admin),
 ):
-    loc = location_service.deactivate_location(db, loc_id)
-    return ResponseSchema(data=LocationOut.model_validate(loc), message="位置已停用")
+    data = location_service.delete_location(db, loc_id, current_user.id)
+    return ResponseSchema(data=data, message="位置已删除")

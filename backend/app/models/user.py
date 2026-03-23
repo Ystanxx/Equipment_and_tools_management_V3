@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, Enum as SAEnum
+from sqlalchemy import String, Text, Enum as SAEnum, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -22,6 +22,7 @@ class User(Base):
     employee_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, name="user_role", create_constraint=True), nullable=False, default=UserRole.USER)
     status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus, name="user_status", create_constraint=True), nullable=False, default=UserStatus.PENDING)
+    email_notifications_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

@@ -41,6 +41,21 @@ def test_change_password_success(client):
     assert res.status_code == 401
 
 
+def test_change_password_supports_post(client):
+    token = _create_user(client, "pwduser_post")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = client.post("/api/v1/auth/password", json={
+        "old_password": "oldpass123",
+        "new_password": "newpass456",
+    }, headers=headers)
+    assert res.status_code == 200
+    assert "成功" in res.json()["message"]
+
+    res = client.post("/api/v1/auth/login", json={"username": "pwduser_post", "password": "newpass456"})
+    assert res.status_code == 200
+
+
 def test_change_password_wrong_old(client):
     token = _create_user(client, "pwduser2")
     headers = {"Authorization": f"Bearer {token}"}

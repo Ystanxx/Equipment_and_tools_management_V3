@@ -31,7 +31,7 @@ def _try_send_email(db: Session, recipient_id: uuid.UUID, title: str, content: s
         return
     try:
         recipient = db.query(User).filter(User.id == recipient_id).first()
-        if not recipient or not recipient.email:
+        if not recipient or not recipient.email or not recipient.email_notifications_enabled:
             return
         from app.services.email_service import send_notification_email
         send_notification_email(recipient.email, title, content)

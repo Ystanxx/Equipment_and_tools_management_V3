@@ -169,6 +169,7 @@ CONFIG_DEFINITIONS: dict[str, ConfigDefinition] = {
         label="启用邮件通知",
         description="是否启用邮件通知",
         group="notification",
+        is_public=True,
     ),
 }
 

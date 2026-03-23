@@ -49,6 +49,8 @@
   font-size: 0.875rem;
   outline: none;
   transition: border-color 0.15s;
+  box-sizing: border-box;
+  max-width: 100%;
 }
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   border-color: var(--accent);
@@ -64,6 +66,31 @@
   gap: 10px;
   font-size: 0.875rem;
   color: var(--ink);
+}
+.switch-row--between {
+  width: 100%;
+  justify-content: space-between;
+}
+.preference-card {
+  padding: 14px 16px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+}
+.preference-card__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 12px;
+}
+.preference-card__title {
+  font-weight: 600;
+}
+.preference-card__hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 /* ===== Chips / Tags ===== */
@@ -139,8 +166,47 @@
   border-radius: var(--radius-card);
   padding: 18px;
 }
+a.stat-card { color: inherit; text-decoration: none; }
 .stat-card__value { font-size: 2rem; font-weight: 600; }
 .stat-card__label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+.stat-card__hint { font-size: 0.75rem; color: var(--accent); margin-top: 10px; font-weight: 500; }
+.stat-card--interactive {
+  display: block;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.stat-card--interactive:hover,
+.stat-card--interactive:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-card);
+  background: var(--panel-alt);
+  text-decoration: none;
+}
+.stat-card--interactive:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .stat-row--dashboard .stat-card {
+    padding: 11px 14px 13px;
+    min-height: 108px;
+  }
+  .stat-row--dashboard .stat-card__value {
+    font-size: 1.6rem;
+    line-height: 1;
+  }
+  .stat-row--dashboard .stat-card__label {
+    margin-top: 7px;
+    line-height: 1.3;
+  }
+  .stat-row--dashboard .stat-card__hint {
+    margin-top: 5px;
+    font-size: 0.68rem;
+    line-height: 1.3;
+  }
+}
 
 /* ===== Meta rows (key-value) ===== */
 .meta-row {
@@ -157,19 +223,25 @@
 .toast {
   position: fixed;
   top: 20px;
-  right: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100vw - 32px), 420px);
   padding: 14px 20px;
   border-radius: var(--radius-input);
   font-size: 0.875rem;
   font-weight: 500;
+  text-align: center;
   z-index: 9999;
-  animation: slideIn 0.3s ease;
+  animation: toastIn 0.24s ease;
   box-shadow: var(--shadow-elevated);
 }
 .toast--success { background: var(--success-soft); color: #2d5e3a; border: 1px solid var(--success); }
 .toast--error { background: var(--danger-soft); color: #8b3a32; border: 1px solid var(--danger); }
 .toast--info { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
-@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes toastIn {
+  from { transform: translate(-50%, -12px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
 
 /* ===== Modal ===== */
 .modal-overlay {
@@ -235,3 +307,26 @@
 .spinner { width: 24px; height: 24px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin: 0 auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-center { display: flex; justify-content: center; align-items: center; padding: 48px; }
+
+.route-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 10001;
+  pointer-events: none;
+  overflow: hidden;
+}
+.route-progress__bar {
+  width: 36%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(207, 116, 56, 0.25), var(--accent), rgba(207, 116, 56, 0.25));
+  animation: routeProgressSlide 0.9s ease-in-out infinite;
+}
+@keyframes routeProgressSlide {
+  0% { transform: translateX(-120%); }
+  60% { transform: translateX(160%); }
+  100% { transform: translateX(220%); }
+}

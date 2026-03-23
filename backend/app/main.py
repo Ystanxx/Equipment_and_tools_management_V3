@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +17,10 @@ from app.utils.enums import UserRole, UserStatus
 import app.models  # noqa: F401 — ensure all models are imported for Alembic
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+
+
+def _is_test_mode() -> bool:
+    return "PYTEST_CURRENT_TEST" in os.environ
 
 
 def seed_super_admin():
@@ -39,6 +44,10 @@ def seed_super_admin():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if _is_test_mode():
+        yield
+        return
+
     seed_super_admin()
 
     # Start photo cleanup scheduler
@@ -79,11 +88,29 @@ if FRONTEND_DIR.exists():
     app.mount("/css", StaticFiles(directory=FRONTEND_DIR / "css"), name="css")
     app.mount("/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
 
-    @app.get("/{full_path:path}")
-    async def serve_spa(request: Request, full_path: str):
-        if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="接口不存在")
-        file_path = FRONTEND_DIR / full_path
-        if full_path and file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(FRONTEND_DIR / "index.html")
+    @app.middleware("http")
+    async def frontend_cache_control_middleware(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if request.method == "GET" and (
+            path == "/" or path.endswith(".html") or path.startswith(("/css/", "/js/"))
+        ):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+    @app.middleware("http")
+    async def spa_middleware(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if (
+            response.status_code == 404
+            and request.method == "GET"
+            and not path.startswith(("/api/", "/uploads/", "/css/", "/js/"))
+        ):
+            file_path = FRONTEND_DIR / path.lstrip("/")
+            if file_path.exists() and file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(FRONTEND_DIR / "index.html")
+        return response

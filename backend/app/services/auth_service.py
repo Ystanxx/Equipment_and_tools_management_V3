@@ -1,8 +1,11 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
+from app.core.config import settings
 from app.models.user import User
 from app.models.registration_request import RegistrationRequest
+from datetime import datetime, timedelta, timezone
+
 from app.core.security import hash_password, verify_password, create_access_token
 from app.utils.enums import UserStatus, RegistrationStatus
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
@@ -72,7 +75,9 @@ def login_user(db: Session, req: LoginRequest) -> TokenResponse:
     if user.status == UserStatus.DISABLED:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已停用")
 
-    access_token = create_access_token(data={"sub": str(user.id)})
+    expires_delta = timedelta(days=30) if req.remember_me else None
+    expire_at = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    access_token = create_access_token(data={"sub": str(user.id)}, expires_delta=expires_delta)
     audit_service.log(db, user.id, "LOGIN_SUCCESS", "User", user.id, description=f"用户 {user.username} 登录成功")
     db.commit()
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=access_token, expires_at=expire_at)

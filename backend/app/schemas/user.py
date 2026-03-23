@@ -15,6 +15,7 @@ class UserOut(BaseModel):
     employee_id: str | None = None
     role: UserRole
     status: UserStatus
+    email_notifications_enabled: bool = True
     remark: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -28,3 +29,7 @@ class RoleUpdateRequest(BaseModel):
 
 class StatusUpdateRequest(BaseModel):
     status: UserStatus
+
+
+class EmailNotificationPreferenceUpdateRequest(BaseModel):
+    email_notifications_enabled: bool

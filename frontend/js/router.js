@@ -1,14 +1,40 @@
 const Router = {
   routes: {},
   currentRoute: null,
+  loadingTimer: null,
+  routeProgressEl: null,
 
   register(name, handler) {
     this.routes[name] = handler;
   },
 
+  ensureRouteProgress() {
+    if (this.routeProgressEl) return this.routeProgressEl;
+    const progress = document.createElement('div');
+    progress.className = 'route-progress hidden';
+    progress.innerHTML = '<div class="route-progress__bar"></div>';
+    document.body.appendChild(progress);
+    this.routeProgressEl = progress;
+    return progress;
+  },
+
+  showRouteProgress() {
+    const progress = this.ensureRouteProgress();
+    progress.classList.remove('hidden');
+  },
+
+  hideRouteProgress() {
+    if (!this.routeProgressEl) return;
+    this.routeProgressEl.classList.add('hidden');
+  },
+
   navigate(name, params = {}) {
     const hash = '#' + name + (Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '');
-    window.location.hash = hash;
+    if (window.location.hash === hash) {
+      this.resolve();
+    } else {
+      window.location.hash = hash;
+    }
   },
 
   parseHash() {
@@ -21,6 +47,12 @@ const Router = {
     return { name, params };
   },
 
+  getDefaultRoute(user) {
+    if (!user) return 'login';
+    if (user.status === 'PENDING') return 'pending';
+    return user.role === 'USER' ? 'asset-list' : 'dashboard';
+  },
+
   async resolve() {
     const { name, params } = this.parseHash();
     this.currentRoute = name;
@@ -29,6 +61,10 @@ const Router = {
     const publicRoutes = ['login', 'register'];
     const token = Api.getToken();
     const user = Api.getUser();
+
+    if (token && user && publicRoutes.includes(name)) {
+      return this.navigate(this.getDefaultRoute(user));
+    }
 
     if (!publicRoutes.includes(name) && !token) {
       return this.navigate('login');
@@ -47,12 +83,25 @@ const Router = {
     const handler = this.routes[name];
     if (handler) {
       const app = document.getElementById('app');
-      app.innerHTML = '<div class="loading-center"><div class="spinner"></div></div>';
+      const hasExistingContent = app && app.childElementCount > 0;
+      clearTimeout(this.loadingTimer);
+      if (!hasExistingContent) {
+        app.innerHTML = '<div class="loading-center"><div class="spinner"></div></div>';
+      } else {
+        this.loadingTimer = setTimeout(() => this.showRouteProgress(), 160);
+      }
       try {
         await handler(params);
+        if (typeof bindMobileTopShell === 'function') {
+          bindMobileTopShell();
+        }
+        window.scrollTo(0, 0);
       } catch (e) {
         console.error('Route error:', e);
         app.innerHTML = `<div class="empty-state"><p>页面加载失败: ${Utils.escapeHtml(e.message)}</p></div>`;
+      } finally {
+        clearTimeout(this.loadingTimer);
+        this.hideRouteProgress();
       }
     } else {
       document.getElementById('app').innerHTML = '<div class="empty-state"><p>页面不存在</p></div>';

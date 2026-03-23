@@ -3,8 +3,10 @@ import uuid
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
+from app.models.asset import Asset
 from app.models.storage_location import StorageLocation
 from app.schemas.storage_location import LocationCreate, LocationUpdate
+from app.services import audit_service
 
 
 def list_locations(db: Session, include_inactive: bool = False) -> list[StorageLocation]:
@@ -59,3 +61,40 @@ def deactivate_location(db: Session, loc_id: uuid.UUID) -> StorageLocation:
     db.commit()
     db.refresh(loc)
     return loc
+
+
+def delete_location(db: Session, loc_id: uuid.UUID, operator_id: uuid.UUID) -> dict:
+    loc = db.query(StorageLocation).filter(StorageLocation.id == loc_id).first()
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="位置不存在")
+
+    active_asset = (
+        db.query(Asset.id, Asset.name)
+        .filter(Asset.location_id == loc_id, Asset.is_active == True)
+        .order_by(Asset.created_at.desc())
+        .first()
+    )
+    if active_asset:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"位置已被设备“{active_asset.name}”使用，无法删除",
+        )
+
+    db.query(Asset).filter(Asset.location_id == loc_id, Asset.is_active == False).update(
+        {Asset.location_id: None},
+        synchronize_session=False,
+    )
+
+    payload = {"id": str(loc.id), "name": loc.name}
+    audit_service.log(
+        db,
+        operator_id,
+        "LOCATION_DELETE",
+        "StorageLocation",
+        loc.id,
+        description=f"删除位置 {loc.name}",
+        snapshot=payload,
+    )
+    db.delete(loc)
+    db.commit()
+    return payload
