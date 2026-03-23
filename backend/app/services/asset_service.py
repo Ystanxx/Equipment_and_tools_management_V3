@@ -65,6 +65,9 @@ def _attach_display_statuses(db: Session, items: list[Asset]) -> None:
                     BorrowOrderStatus.PARTIALLY_APPROVED,
                     BorrowOrderStatus.APPROVED,
                     BorrowOrderStatus.READY_FOR_PICKUP,
+                    BorrowOrderStatus.DELIVERED,
+                    BorrowOrderStatus.PARTIALLY_RETURNED,
+                    BorrowOrderStatus.COMPLETED,
                 )
             ),
         )
@@ -81,6 +84,10 @@ def _attach_display_statuses(db: Session, items: list[Asset]) -> None:
         borrow_status = order_status_map.get(item.id)
         if borrow_status in (BorrowOrderStatus.READY_FOR_PICKUP, BorrowOrderStatus.APPROVED):
             item.display_status = BorrowOrderStatus.READY_FOR_PICKUP.value
+        elif borrow_status in (BorrowOrderStatus.DELIVERED, BorrowOrderStatus.PARTIALLY_RETURNED):
+            item.display_status = AssetStatus.BORROWED.value
+        elif borrow_status == BorrowOrderStatus.COMPLETED:
+            item.display_status = AssetStatus.IN_STOCK.value
 
 
 def _attach_current_borrowers(db: Session, items: list[Asset]) -> None:
