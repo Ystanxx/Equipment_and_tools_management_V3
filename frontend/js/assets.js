@@ -245,10 +245,17 @@ Router.register('asset-detail', async (params) => {
 
   // Load inventory photos
   let inventoryPhotos = [];
+  let admins = [];
   try {
     const pr = await Api.listAttachments({ related_type: 'Asset', related_id: asset.id, photo_type: 'INVENTORY' });
     inventoryPhotos = pr.data || [];
   } catch (e) { /* ignore */ }
+  if (user.role === 'SUPER_ADMIN') {
+    try {
+      const usersRes = await Api.listUsers({ page_size: 100 });
+      admins = (usersRes.data.items || []).filter(u => u.role === 'ASSET_ADMIN' || u.role === 'SUPER_ADMIN');
+    } catch (e) { /* ignore */ }
+  }
 
   const detailHtml = `
     <div class="page-header">
@@ -288,26 +295,37 @@ Router.register('asset-detail', async (params) => {
       <div class="content-side">
         <div class="card stack--md">
           <h3>库存照片</h3>
-          <div id="asset-photo-gallery" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <div id="asset-photo-gallery" class="photo-gallery" style="margin-bottom:8px;">
             ${inventoryPhotos.length > 0 ? inventoryPhotos.map(p =>
-              `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line);" onclick="window.open('/uploads/${Utils.escapeHtml(p.file_path)}','_blank')">`
+              `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
             ).join('') : '<p class="text-sm text-muted">暂无照片</p>'}
           </div>
           ${isAdmin ? `
           <div class="form-group" style="margin-top:8px;">
             <label class="form-label">上传库存照片</label>
-            <input type="file" id="asset-photo-upload" accept="image/*" multiple style="font-size:0.8125rem;">
+            <input type="file" id="asset-photo-upload" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="font-size:0.8125rem;">
             <div id="asset-upload-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;" disabled>上传</button>
           </div>` : ''}
         </div>
+        ${user.role === 'SUPER_ADMIN' ? `
+        <div class="card stack--md">
+          <h3>管理员分配</h3>
+          <p class="text-sm text-muted" style="margin-bottom:4px;">当前管理员：${Utils.escapeHtml(asset.admin_name || '未分配')}</p>
+          <div class="form-group">
+            <select id="asset-admin-select" class="form-select">
+              ${admins.map(a => `<option value="${a.id}" ${asset.admin_id === a.id ? 'selected' : ''}>${Utils.escapeHtml(a.full_name)} (${Utils.escapeHtml(a.username)})</option>`).join('')}
+            </select>
+            <button class="btn btn--secondary btn--sm" id="asset-admin-change-btn">变更管理员</button>
+          </div>
+        </div>` : ''}
       </div>
     </div>`;
 
   if (isAdmin) {
     app.innerHTML = renderPcLayout('asset-list', detailHtml);
   } else {
-    app.innerHTML = `<div class="page--mobile"><div class="page">${detailHtml}</div></div>`;
+    app.innerHTML = `<div class="page--mobile"><div class="mobile-back-bar"><a href="#asset-list">${Utils.svgIcon('arrowLeft')} 返回设备列表</a></div><div class="page" style="padding-top:8px;">${detailHtml}</div></div>`;
   }
 
   // Add to cart button
@@ -345,6 +363,26 @@ Router.register('asset-detail', async (params) => {
       Router.navigate('asset-detail', { id: asset.id });
     });
   }
+
+  // Super admin: change device admin
+  const adminChangeBtn = document.getElementById('asset-admin-change-btn');
+  if (adminChangeBtn) {
+    adminChangeBtn.addEventListener('click', async () => {
+      const sel = document.getElementById('asset-admin-select');
+      if (!sel || !sel.value) return;
+      try {
+        adminChangeBtn.disabled = true;
+        adminChangeBtn.textContent = '变更中...';
+        await Api.updateAssetAdmin(asset.id, sel.value);
+        Utils.showToast('管理员已变更');
+        Router.navigate('asset-detail', { id: asset.id });
+      } catch (e) {
+        Utils.showToast(e.message, 'error');
+        adminChangeBtn.disabled = false;
+        adminChangeBtn.textContent = '变更管理员';
+      }
+    });
+  }
 });
 
 // ===== Asset Form Page =====
@@ -379,73 +417,118 @@ Router.register('asset-form', async (params) => {
   const formHtml = `
     <div class="page-header">
       <div class="page-header__info">
-        <h1 class="page-header__title">${isEdit ? '编辑设备/工具' : '新建设备/工具'}</h1>
+        <h1 class="page-header__title">${isEdit ? '编辑设备/工具' : '录入新设备/工具'}</h1>
+        <p class="page-header__desc">${isEdit ? '修改设备信息' : '填写设备信息并上传库存照片'}</p>
       </div>
       <div class="page-header__actions">
-        <button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list')">返回</button>
+        <button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list')">返回列表</button>
       </div>
     </div>
 
     <div class="content-row">
       <div class="content-main">
         <div class="card stack--lg">
+          <h3>基本信息</h3>
           <div class="form-group">
-            <label class="form-label">设备/工具名称 *</label>
+            <label class="form-label">设备/工具名称 <span class="form-required">*必填</span></label>
             <input type="text" id="af-name" class="form-input" value="${Utils.escapeHtml(asset?.name || '')}" placeholder="例如：数字示波器">
           </div>
           <div class="flex gap-md">
             <div class="form-group" style="flex:1;">
-              <label class="form-label">类型 *</label>
+              <label class="form-label">类型 <span class="form-required">*必填</span></label>
               <select id="af-type" class="form-select">
                 <option value="DEVICE" ${asset?.asset_type === 'DEVICE' ? 'selected' : ''}>设备</option>
                 <option value="TOOL" ${asset?.asset_type === 'TOOL' ? 'selected' : ''}>工具</option>
               </select>
             </div>
             <div class="form-group" style="flex:1;">
-              <label class="form-label">分类</label>
+              <label class="form-label">分类 <span class="form-required">*必填</span></label>
               <select id="af-category" class="form-select">
-                <option value="">未分类</option>
+                <option value="">请选择分类</option>
                 ${categories.map(c => `<option value="${c.id}" ${asset?.category_id === c.id ? 'selected' : ''}>${Utils.escapeHtml(c.name)}</option>`).join('')}
               </select>
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">存放位置</label>
+            <label class="form-label">存放位置 <span class="form-required">*必填</span></label>
             <select id="af-location" class="form-select">
-              <option value="">未指定</option>
+              <option value="">请选择位置</option>
               ${locations.map(l => `<option value="${l.id}" ${asset?.location_id === l.id ? 'selected' : ''}>${Utils.escapeHtml(l.name)}</option>`).join('')}
             </select>
           </div>
           ${user.role === 'SUPER_ADMIN' ? `
           <div class="form-group">
-            <label class="form-label">设备管理员 *</label>
+            <label class="form-label">设备管理员 <span class="form-required">*必填，超管必须指定</span></label>
             <select id="af-admin" class="form-select">
-              <option value="">请选择</option>
+              <option value="">请选择管理员</option>
               ${admins.map(a => `<option value="${a.id}" ${asset?.admin_id === a.id ? 'selected' : ''}>${Utils.escapeHtml(a.full_name)} (${Utils.escapeHtml(a.username)})</option>`).join('')}
             </select>
           </div>` : ''}
-          <div class="flex gap-md">
-            <div class="form-group" style="flex:1;"><label class="form-label">品牌</label><input type="text" id="af-brand" class="form-input" value="${Utils.escapeHtml(asset?.brand || '')}"></div>
-            <div class="form-group" style="flex:1;"><label class="form-label">型号</label><input type="text" id="af-model" class="form-input" value="${Utils.escapeHtml(asset?.model || '')}"></div>
-          </div>
-          <div class="form-group"><label class="form-label">序列号</label><input type="text" id="af-serial" class="form-input" value="${Utils.escapeHtml(asset?.serial_number || '')}"></div>
-          <div class="form-group"><label class="form-label">入库日期</label><input type="date" id="af-date" class="form-input" value="${asset?.entry_date || ''}"></div>
-          <div class="form-group"><label class="form-label">描述</label><textarea id="af-desc" class="form-textarea">${Utils.escapeHtml(asset?.description || '')}</textarea></div>
-          <div class="form-group"><label class="form-label">备注</label><textarea id="af-remark" class="form-textarea">${Utils.escapeHtml(asset?.remark || '')}</textarea></div>
-
-          <div id="af-error" class="form-error hidden"></div>
-          <button id="af-submit" class="btn btn--primary btn--full">${isEdit ? '保存修改' : '提交新建'}</button>
         </div>
+
+        <div class="card stack--lg">
+          <h3>补充信息（选填）</h3>
+          <div class="flex gap-md">
+            <div class="form-group" style="flex:1;"><label class="form-label">品牌</label><input type="text" id="af-brand" class="form-input" value="${Utils.escapeHtml(asset?.brand || '')}" placeholder="例如：Tektronix"></div>
+            <div class="form-group" style="flex:1;"><label class="form-label">型号</label><input type="text" id="af-model" class="form-input" value="${Utils.escapeHtml(asset?.model || '')}" placeholder="例如：TDS1012"></div>
+          </div>
+          <div class="flex gap-md">
+            <div class="form-group" style="flex:1;"><label class="form-label">序列号</label><input type="text" id="af-serial" class="form-input" value="${Utils.escapeHtml(asset?.serial_number || '')}"></div>
+            <div class="form-group" style="flex:1;"><label class="form-label">入库日期</label><input type="date" id="af-date" class="form-input" value="${asset?.entry_date || ''}"></div>
+          </div>
+          <div class="form-group"><label class="form-label">描述</label><textarea id="af-desc" class="form-textarea" placeholder="设备详细说明">${Utils.escapeHtml(asset?.description || '')}</textarea></div>
+          <div class="form-group"><label class="form-label">备注</label><textarea id="af-remark" class="form-textarea" placeholder="其他信息">${Utils.escapeHtml(asset?.remark || '')}</textarea></div>
+        </div>
+
+        ${!isEdit ? `
+        <div class="card stack--lg">
+          <h3>库存照片 <span class="form-required">*必填，拍照留痕</span></h3>
+          <p class="text-sm text-muted" style="margin-top:-8px;">上传设备入库时的照片，作为基准对比。支持 jpg/png/webp。</p>
+          <div class="form-group">
+            <input type="file" id="af-photos" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="font-size:0.8125rem;">
+            <div id="af-photo-preview" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+          </div>
+        </div>` : ''}
+
+        <div id="af-error" class="form-error hidden"></div>
+        <button id="af-submit" class="btn btn--primary btn--full" style="margin-top:4px;">${isEdit ? '保存修改' : '创建并上传照片'}</button>
       </div>
       <div class="content-side">
         <div class="card stack--sm">
           <h3>编号规则</h3>
-          <p class="text-sm text-muted">编号由名称拼音首字母自动生成，格式如 LSD-001。编号一旦生成不可复用。</p>
+          <p class="text-sm text-muted">编号由名称拼音首字母自动生成，格式如 LSD-001。</p>
+          <p class="text-sm text-muted">编号一旦生成不可复用或回收。</p>
         </div>
+        <div class="card stack--sm">
+          <h3>管理员规则</h3>
+          <p class="text-sm text-muted">超管创建设备时必须指定设备管理员。</p>
+          <p class="text-sm text-muted">设备管理员创建时自动绑定自己。</p>
+        </div>
+        ${isEdit ? `
+        <div class="card stack--sm">
+          <h3>库存照片</h3>
+          <p class="text-sm text-muted">请在设备详情页上传/管理库存照片。</p>
+          <a href="#asset-detail?id=${params.id}" class="btn btn--outline btn--sm btn--full">查看设备详情</a>
+        </div>` : ''}
       </div>
     </div>`;
 
   app.innerHTML = renderPcLayout('asset-list', formHtml);
+
+  // Photo preview for new asset
+  const photoInput = document.getElementById('af-photos');
+  if (photoInput) {
+    photoInput.addEventListener('change', () => {
+      const preview = document.getElementById('af-photo-preview');
+      preview.innerHTML = '';
+      for (const f of photoInput.files) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.style.cssText = 'width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--line);';
+        preview.appendChild(img);
+      }
+    });
+  }
 
   document.getElementById('af-submit').addEventListener('click', async () => {
     const errEl = document.getElementById('af-error');
@@ -469,24 +552,43 @@ Router.register('asset-form', async (params) => {
       if (adminEl) data.admin_id = adminEl.value || null;
     }
 
-    if (!data.name) {
-      errEl.textContent = '请填写设备名称';
-      errEl.classList.remove('hidden');
-      return;
+    // Validation
+    if (!data.name) { errEl.textContent = '请填写设备名称'; errEl.classList.remove('hidden'); return; }
+    if (!data.category_id) { errEl.textContent = '请选择分类'; errEl.classList.remove('hidden'); return; }
+    if (!data.location_id) { errEl.textContent = '请选择存放位置'; errEl.classList.remove('hidden'); return; }
+    if (user.role === 'SUPER_ADMIN' && !data.admin_id) { errEl.textContent = '超管必须指定设备管理员'; errEl.classList.remove('hidden'); return; }
+    if (!isEdit) {
+      const pInput = document.getElementById('af-photos');
+      if (!pInput || pInput.files.length === 0) { errEl.textContent = '请上传库存照片（必填）'; errEl.classList.remove('hidden'); return; }
     }
 
+    const submitBtn = document.getElementById('af-submit');
     try {
+      submitBtn.disabled = true;
+      submitBtn.textContent = isEdit ? '保存中...' : '创建中...';
+      let assetId;
       if (isEdit) {
         await Api.updateAsset(params.id, data);
+        assetId = params.id;
         Utils.showToast('更新成功');
       } else {
-        await Api.createAsset(data);
-        Utils.showToast('创建成功');
+        const res = await Api.createAsset(data);
+        assetId = res.data.id;
+        // Upload inventory photos
+        const pInput = document.getElementById('af-photos');
+        if (pInput && pInput.files.length > 0) {
+          for (const f of pInput.files) {
+            try { await Api.uploadAttachment(f, 'INVENTORY', 'Asset', assetId); } catch (e) { console.warn('Photo upload failed:', e); }
+          }
+        }
+        Utils.showToast('设备创建成功');
       }
-      Router.navigate('asset-list');
+      Router.navigate('asset-detail', { id: assetId });
     } catch (e) {
       errEl.textContent = e.message;
       errEl.classList.remove('hidden');
+      submitBtn.disabled = false;
+      submitBtn.textContent = isEdit ? '保存修改' : '创建并上传照片';
     }
   });
 });

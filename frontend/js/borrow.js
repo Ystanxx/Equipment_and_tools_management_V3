@@ -39,8 +39,8 @@ Router.register('borrow-cart', async () => {
           <div class="card stack--lg" style="margin-top:20px;">
             <h3>借用信息</h3>
             <div class="form-group">
-              <label class="form-label">借用说明 / 用途（选填）</label>
-              <textarea id="cart-purpose" class="form-textarea" placeholder="说明借用原因"></textarea>
+              <label class="form-label">借用说明 / 用途 <span class="form-required">*必填</span></label>
+              <textarea id="cart-purpose" class="form-textarea" placeholder="请说明借用原因和用途"></textarea>
             </div>
             <div class="form-group">
               <label class="form-label">预计归还日期（选填）</label>
@@ -51,8 +51,9 @@ Router.register('borrow-cart', async () => {
               <textarea id="cart-remark" class="form-textarea" placeholder="其他信息"></textarea>
             </div>
             <div class="form-group">
-              <label class="form-label">附件照片（选填，可多选）</label>
-              <input type="file" id="cart-photos" accept="image/*" multiple style="font-size:0.8125rem;">
+              <label class="form-label">借出照片 <span class="form-required">*必填，拍照留痕</span></label>
+              <input type="file" id="cart-photos" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="font-size:0.8125rem;">
+              <p class="text-xs text-muted" style="margin-top:4px;">支持 jpg/png/webp，可多选，用于记录借出时设备状态</p>
               <div id="cart-photo-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             </div>
             <div id="cart-error" class="form-error hidden"></div>
@@ -103,6 +104,18 @@ Router.register('borrow-cart', async () => {
       const purpose = document.getElementById('cart-purpose').value.trim() || null;
       const returnDate = document.getElementById('cart-return-date').value || null;
       const remark = document.getElementById('cart-remark').value.trim() || null;
+      const photoInput = document.getElementById('cart-photos');
+
+      if (!purpose) {
+        errEl.textContent = '请填写借用说明/用途（必填项）';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      if (!photoInput || photoInput.files.length === 0) {
+        errEl.textContent = '请上传借出照片（必填项，用于拍照留痕）';
+        errEl.classList.remove('hidden');
+        return;
+      }
 
       try {
         submitBtn.disabled = true;
@@ -114,7 +127,6 @@ Router.register('borrow-cart', async () => {
           remark,
         });
         // Upload photos
-        const photoInput = document.getElementById('cart-photos');
         if (photoInput && photoInput.files.length > 0) {
           for (const f of photoInput.files) {
             try { await Api.uploadAttachment(f, 'BORROW_ORDER', 'BorrowOrder', res.data.id); } catch (e) { console.warn('Photo upload failed:', e); }
@@ -336,9 +348,9 @@ Router.register('borrow-detail', async (params) => {
         ${order.remark ? `<div class="card stack--sm"><h3>备注</h3><p class="text-sm">${Utils.escapeHtml(order.remark)}</p></div>` : ''}
         ${orderPhotos.length > 0 ? `
         <div class="card stack--sm">
-          <h3>附件照片</h3>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${orderPhotos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line);" onclick="window.open('/uploads/${Utils.escapeHtml(p.file_path)}','_blank')">`).join('')}
+          <h3>借出照片</h3>
+          <div class="photo-gallery">
+            ${orderPhotos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join('')}
           </div>
         </div>` : ''}
       </div>
