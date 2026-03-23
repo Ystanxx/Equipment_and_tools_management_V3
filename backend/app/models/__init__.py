@@ -1,12 +1,14 @@
 from app.core.database import Base  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.registration_request import RegistrationRequest  # noqa: F401
+from app.models.asset_type import AssetTypeOption  # noqa: F401
 from app.models.asset_category import AssetCategory  # noqa: F401
 from app.models.storage_location import StorageLocation  # noqa: F401
 from app.models.asset_number_seq import AssetNumberSequence  # noqa: F401
 from app.models.asset import Asset  # noqa: F401
 from app.models.attachment import Attachment  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
+from app.models.equipment_order import EquipmentOrder  # noqa: F401
 from app.models.borrow_order import BorrowOrder  # noqa: F401
 from app.models.borrow_order_item import BorrowOrderItem  # noqa: F401
 from app.models.borrow_approval_task import BorrowApprovalTask  # noqa: F401

@@ -19,7 +19,9 @@ router = APIRouter(prefix="/return-approval-tasks", tags=["归还审批"])
 def _task_to_out(t, db: Session = None) -> ReturnApprovalTaskOut:
     item_details = []
     return_order_no = None
+    return_order_status = None
     applicant_name = None
+    equipment_order_id = None
     if db and t.item_ids:
         items = db.query(ReturnOrderItem).filter(ReturnOrderItem.id.in_(t.item_ids)).all()
         for i in items:
@@ -40,11 +42,15 @@ def _task_to_out(t, db: Session = None) -> ReturnApprovalTaskOut:
         ro = db.query(ReturnOrder).filter(ReturnOrder.id == t.return_order_id).first()
         if ro:
             return_order_no = ro.order_no
+            return_order_status = ro.status.value if hasattr(ro.status, "value") else ro.status
             applicant_name = ro.applicant.full_name if ro.applicant else None
+            equipment_order_id = ro.equipment_order_id
     return ReturnApprovalTaskOut(
         id=t.id,
         return_order_id=t.return_order_id,
+        equipment_order_id=equipment_order_id,
         return_order_no=return_order_no,
+        return_order_status=return_order_status,
         applicant_name=applicant_name,
         approver_id=t.approver_id,
         approver_name=t.approver.full_name if t.approver else None,
@@ -62,6 +68,7 @@ def list_tasks(
     page: int = 1,
     page_size: int = 20,
     status: str | None = None,
+    history_only: bool = False,
     return_order_id: UUID | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
@@ -72,6 +79,7 @@ def list_tasks(
         approver_id=approver_id,
         return_order_id=return_order_id,
         status_filter=status,
+        history_only=history_only,
         page=page,
         page_size=page_size,
     )

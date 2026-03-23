@@ -26,10 +26,10 @@ def _login_as_role(client, db, username: str, role: UserRole):
     return user, {"Authorization": f"Bearer {token}"}
 
 
-def _create_asset(client, headers, name: str, admin_id: str, category_id: str | None = None, location_id: str | None = None):
+def _create_asset(client, headers, name: str, admin_id: str, asset_type_id: str, category_id: str | None = None, location_id: str | None = None):
     payload = {
         "name": name,
-        "asset_type": "DEVICE",
+        "asset_type_id": asset_type_id,
         "admin_id": admin_id,
     }
     if category_id:
@@ -66,7 +66,7 @@ def test_super_admin_can_delete_unused_category_and_location(client, db):
     assert db.query(StorageLocation).filter(StorageLocation.id == location_id).first() is None
 
 
-def test_super_admin_cannot_delete_used_category_or_location(client, db):
+def test_super_admin_cannot_delete_used_category_or_location(client, db, asset_type_ids):
     _, super_headers = _login_as_role(client, db, "used_super", UserRole.SUPER_ADMIN)
     asset_admin, _ = _login_as_role(client, db, "used_asset_admin", UserRole.ASSET_ADMIN)
 
@@ -88,6 +88,7 @@ def test_super_admin_cannot_delete_used_category_or_location(client, db):
         super_headers,
         "已绑定设备",
         str(asset_admin.id),
+        asset_type_ids["固定资产"],
         category_id=category_id,
         location_id=location_id,
     )
@@ -101,11 +102,11 @@ def test_super_admin_cannot_delete_used_category_or_location(client, db):
     assert "无法删除" in delete_location_res.json()["detail"]
 
 
-def test_super_admin_can_delete_and_restore_recent_asset(client, db):
+def test_super_admin_can_delete_and_restore_recent_asset(client, db, asset_type_ids):
     _, super_headers = _login_as_role(client, db, "restore_super", UserRole.SUPER_ADMIN)
     asset_admin, _ = _login_as_role(client, db, "restore_asset_admin", UserRole.ASSET_ADMIN)
 
-    asset_id = _create_asset(client, super_headers, "可恢复设备", str(asset_admin.id))
+    asset_id = _create_asset(client, super_headers, "可恢复设备", str(asset_admin.id), asset_type_ids["固定资产"])
 
     delete_res = client.delete(f"/api/v1/assets/{asset_id}", headers=super_headers)
     assert delete_res.status_code == 200
@@ -122,7 +123,7 @@ def test_super_admin_can_delete_and_restore_recent_asset(client, db):
     assert db.query(Asset).filter(Asset.id == asset_id).first().is_active is True
 
 
-def test_deleted_assets_no_longer_block_category_or_location_delete(client, db):
+def test_deleted_assets_no_longer_block_category_or_location_delete(client, db, asset_type_ids):
     _, super_headers = _login_as_role(client, db, "inactive_ref_super", UserRole.SUPER_ADMIN)
     asset_admin, _ = _login_as_role(client, db, "inactive_ref_admin", UserRole.ASSET_ADMIN)
 
@@ -144,6 +145,7 @@ def test_deleted_assets_no_longer_block_category_or_location_delete(client, db):
         super_headers,
         "引用后删除设备",
         str(asset_admin.id),
+        asset_type_ids["固定资产"],
         category_id=category_id,
         location_id=location_id,
     )
@@ -159,13 +161,13 @@ def test_deleted_assets_no_longer_block_category_or_location_delete(client, db):
     assert delete_location_res.status_code == 200
 
 
-def test_only_latest_five_deleted_assets_can_be_restored(client, db):
+def test_only_latest_five_deleted_assets_can_be_restored(client, db, asset_type_ids):
     _, super_headers = _login_as_role(client, db, "recent_super", UserRole.SUPER_ADMIN)
     asset_admin, _ = _login_as_role(client, db, "recent_asset_admin", UserRole.ASSET_ADMIN)
 
     asset_ids = []
     for index in range(6):
-        asset_ids.append(_create_asset(client, super_headers, f"设备{index + 1}", str(asset_admin.id)))
+        asset_ids.append(_create_asset(client, super_headers, f"设备{index + 1}", str(asset_admin.id), asset_type_ids["固定资产"]))
 
     for asset_id in asset_ids:
         delete_res = client.delete(f"/api/v1/assets/{asset_id}", headers=super_headers)

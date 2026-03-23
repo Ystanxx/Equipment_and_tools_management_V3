@@ -10,8 +10,8 @@ from app.models.borrow_order import BorrowOrder
 from app.models.borrow_order_item import BorrowOrderItem
 from app.models.borrow_approval_task import BorrowApprovalTask
 from app.models.user import User
-from app.utils.enums import AssetStatus, BorrowOrderStatus, ApprovalTaskStatus
-from app.services import audit_service, notification_service, system_config_service
+from app.utils.enums import AssetStatus, BorrowOrderStatus, ApprovalTaskStatus, UserRole
+from app.services import audit_service, equipment_order_service, notification_service, system_config_service
 
 
 def _generate_order_no(db: Session) -> str:
@@ -64,7 +64,17 @@ def create_borrow_order(
             raise HTTPException(status_code=400, detail=f"设备 {a.asset_code} 已停用")
 
     order_no = _generate_order_no(db)
+    equipment_order = equipment_order_service.create_equipment_order(
+        db=db,
+        order_no=order_no,
+        applicant_id=applicant.id,
+        purpose=purpose,
+        expected_return_date=expected_return_date,
+        item_count=len(assets),
+        remark=remark,
+    )
     order = BorrowOrder(
+        equipment_order_id=equipment_order.id,
         order_no=order_no,
         applicant_id=applicant.id,
         status=BorrowOrderStatus.PENDING_APPROVAL,
@@ -107,7 +117,16 @@ def create_borrow_order(
         )
         db.add(task)
 
-    audit_service.log(db, applicant.id, "BORROW_ORDER_CREATE", "BorrowOrder", order.id, order.id, f"提交借用单 {order_no}，共 {len(assets)} 件")
+    audit_service.log(
+        db,
+        applicant.id,
+        "BORROW_ORDER_CREATE",
+        "BorrowOrder",
+        order.id,
+        equipment_order_id=equipment_order.id,
+        order_id=order.id,
+        description=f"提交借用单 {order_no}，共 {len(assets)} 件",
+    )
 
     # 通知各管理员有新借用审批
     for approver_id in admin_items.keys():
@@ -133,9 +152,29 @@ def get_borrow_order(db: Session, order_id: uuid.UUID) -> BorrowOrder:
     return order
 
 
+def user_can_access_borrow_order(order: BorrowOrder, user: User) -> bool:
+    """判断当前用户是否有权查看该借用单。"""
+    if user.role == UserRole.SUPER_ADMIN:
+        return True
+    if user.role == UserRole.USER:
+        return order.applicant_id == user.id
+    return any(item.admin_id_snapshot == user.id for item in (order.items or []))
+
+
+def user_can_manage_borrow_order(order: BorrowOrder, user: User) -> bool:
+    """判断当前用户是否有权执行借用单管理动作。"""
+    if user.role == UserRole.SUPER_ADMIN:
+        return True
+    if user.role != UserRole.ASSET_ADMIN:
+        return False
+    items = order.items or []
+    return bool(items) and all(item.admin_id_snapshot == user.id for item in items)
+
+
 def list_borrow_orders(
     db: Session,
     applicant_id: uuid.UUID | None = None,
+    managed_admin_id: uuid.UUID | None = None,
     status_filter: str | None = None,
     page: int = 1,
     page_size: int = 20,
@@ -143,6 +182,10 @@ def list_borrow_orders(
     q = db.query(BorrowOrder)
     if applicant_id:
         q = q.filter(BorrowOrder.applicant_id == applicant_id)
+    if managed_admin_id:
+        q = q.join(BorrowOrderItem, BorrowOrderItem.order_id == BorrowOrder.id).filter(
+            BorrowOrderItem.admin_id_snapshot == managed_admin_id
+        ).distinct()
     if status_filter:
         q = q.filter(BorrowOrder.status == status_filter)
     total = q.count()
@@ -152,6 +195,9 @@ def list_borrow_orders(
 
 def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> BorrowOrder:
     order = get_borrow_order(db, order_id)
+
+    if not user_can_manage_borrow_order(order, deliverer):
+        raise HTTPException(status_code=403, detail="只能确认自己负责设备的交付")
 
     if order.status not in (BorrowOrderStatus.APPROVED, BorrowOrderStatus.READY_FOR_PICKUP):
         raise HTTPException(status_code=400, detail=f"当前状态 {order.status.value} 不可确认交付")
@@ -166,7 +212,17 @@ def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> B
         if asset:
             asset.status = AssetStatus.BORROWED
 
-    audit_service.log(db, deliverer.id, "BORROW_ORDER_DELIVER", "BorrowOrder", order.id, order.id, f"确认交付借用单 {order.order_no}")
+    equipment_order_service.sync_from_borrow_order(db, order.id)
+    audit_service.log(
+        db,
+        deliverer.id,
+        "BORROW_ORDER_DELIVER",
+        "BorrowOrder",
+        order.id,
+        equipment_order_id=order.equipment_order_id,
+        order_id=order.id,
+        description=f"确认交付借用单 {order.order_no}",
+    )
     db.commit()
     db.refresh(order)
     return order
@@ -193,7 +249,17 @@ def cancel_borrow_order(db: Session, order_id: uuid.UUID, user: User) -> BorrowO
         if task.status == ApprovalTaskStatus.PENDING:
             task.status = ApprovalTaskStatus.SKIPPED
 
-    audit_service.log(db, user.id, "BORROW_ORDER_CANCEL", "BorrowOrder", order.id, order.id, f"取消借用单 {order.order_no}")
+    equipment_order_service.sync_from_borrow_order(db, order.id)
+    audit_service.log(
+        db,
+        user.id,
+        "BORROW_ORDER_CANCEL",
+        "BorrowOrder",
+        order.id,
+        equipment_order_id=order.equipment_order_id,
+        order_id=order.id,
+        description=f"取消借用单 {order.order_no}",
+    )
     db.commit()
     db.refresh(order)
     return order

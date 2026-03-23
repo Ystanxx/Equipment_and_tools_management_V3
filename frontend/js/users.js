@@ -1,6 +1,7 @@
 // ===== User Management Page =====
 Router.register('user-mgmt', async () => {
   const app = document.getElementById('app');
+  const currentUser = Api.getUser();
   let users = [], registrations = [];
 
   try {
@@ -20,7 +21,7 @@ Router.register('user-mgmt', async () => {
     <div class="page-header">
       <div class="page-header__info">
         <h1 class="page-header__title">用户管理</h1>
-        <p class="page-header__desc">管理用户、角色和注册审核</p>
+        <p class="page-header__desc">管理成员资料、角色状态与注册审核</p>
       </div>
       <div class="page-header__actions">
         ${pendingCount > 0 ? `<span class="chip chip--danger">${pendingCount} 待审核</span>` : ''}
@@ -30,16 +31,22 @@ Router.register('user-mgmt', async () => {
     <div class="content-row">
       <div class="content-main">
         ${pendingCount > 0 ? `
-        <div class="card card--strong stack--md">
-          <h3>待审核注册 (${pendingCount})</h3>
-          <div class="stack--sm" id="reg-list">
+        <div class="table-card">
+          <div class="table-card__head">
+            <div>
+              <div class="table-card__title">待审核注册</div>
+              <div class="table-card__desc">新成员提交注册后，会在这里集中处理审核。</div>
+            </div>
+            <span class="tag">共 ${pendingCount} 项</span>
+          </div>
+          <div class="stack--sm user-registration-list" id="reg-list">
             ${registrations.map(r => `
               <div class="user-row">
                 <div class="user-row__info">
                   <span class="user-row__name">${Utils.escapeHtml(r.user?.full_name || '-')} / ${Utils.escapeHtml(r.user?.username || '-')}</span>
                   <span class="user-row__meta">${Utils.escapeHtml(r.user?.email || '-')} · ${Utils.formatDateTime(r.created_at)}</span>
                 </div>
-                <div class="flex gap-sm">
+                <div class="user-row__actions">
                   <button class="btn btn--primary btn--sm reg-approve-btn" data-id="${r.id}">通过</button>
                   <button class="btn btn--outline btn--sm reg-reject-btn" data-id="${r.id}">驳回</button>
                 </div>
@@ -48,26 +55,52 @@ Router.register('user-mgmt', async () => {
           </div>
         </div>` : ''}
 
-        <div class="card" style="padding:0;overflow:hidden;">
+        <div class="table-card">
+          <div class="table-card__head">
+            <div>
+              <div class="table-card__title">成员列表</div>
+              <div class="table-card__desc">统一维护成员资料、角色和启停状态。</div>
+            </div>
+            <span class="tag">共 ${users.length} 人</span>
+          </div>
           <div class="table-wrapper">
-            <table class="data-table">
-              <thead><tr><th>用户名</th><th>姓名</th><th>邮箱</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+            <table class="data-table user-table">
+              <colgroup>
+                <col style="width:180px;">
+                <col style="width:150px;">
+                <col style="width:340px;">
+                <col style="width:170px;">
+                <col style="width:132px;">
+                <col style="width:344px;">
+              </colgroup>
+              <thead><tr><th>用户名</th><th>姓名</th><th>邮箱</th><th>角色</th><th class="user-table__status-head">状态</th><th class="user-table__actions-head">操作</th></tr></thead>
               <tbody>
                 ${users.map(u => `
                   <tr>
-                    <td style="font-weight:500;">${Utils.escapeHtml(u.username)}</td>
+                    <td>
+                      <div class="user-table__identity">
+                        <span class="user-table__username">${Utils.escapeHtml(u.username)}</span>
+                        ${u.id === currentUser?.id ? '<span class="chip chip--outline user-table__self-chip">当前</span>' : ''}
+                      </div>
+                    </td>
                     <td>${Utils.escapeHtml(u.full_name)}</td>
                     <td class="text-sm">${Utils.escapeHtml(u.email)}</td>
                     <td><span class="chip chip--outline">${Utils.roleMap[u.role] || u.role}</span></td>
-                    <td>${Utils.statusChip(u.status, Utils.userStatusMap)}</td>
-                    <td>
-                      <select class="form-select role-select" data-id="${u.id}" style="width:120px;padding:6px 10px;font-size:0.75rem;">
-                        <option value="USER" ${u.role === 'USER' ? 'selected' : ''}>普通用户</option>
-                        <option value="ASSET_ADMIN" ${u.role === 'ASSET_ADMIN' ? 'selected' : ''}>设备管理员</option>
-                        ${u.role === 'SUPER_ADMIN' ? '<option value="SUPER_ADMIN" selected>超级管理员</option>' : ''}
-                      </select>
-                      ${u.status === 'ACTIVE' ? `<button class="btn btn--outline btn--sm user-disable-btn" data-id="${u.id}">停用</button>` : ''}
-                      ${u.status === 'DISABLED' ? `<button class="btn btn--outline btn--sm user-enable-btn" data-id="${u.id}">启用</button>` : ''}
+                    <td class="user-table__status-cell">${Utils.statusChip(u.status, Utils.userStatusMap)}</td>
+                    <td class="user-table__actions-cell">
+                      <div class="user-table__actions">
+                        <button class="btn btn--outline btn--sm user-table__action-btn user-profile-edit-btn" data-id="${u.id}">编辑资料</button>
+                        <select class="form-select user-table__role-select role-select" data-id="${u.id}" ${u.id === currentUser?.id ? 'disabled' : ''}>
+                          <option value="USER" ${u.role === 'USER' ? 'selected' : ''}>普通用户</option>
+                          <option value="ASSET_ADMIN" ${u.role === 'ASSET_ADMIN' ? 'selected' : ''}>设备管理员</option>
+                          <option value="SUPER_ADMIN" ${u.role === 'SUPER_ADMIN' ? 'selected' : ''}>超级管理员</option>
+                        </select>
+                        ${u.id !== currentUser?.id && u.status === 'ACTIVE'
+                          ? `<button class="btn btn--outline btn--sm user-table__action-btn user-disable-btn" data-id="${u.id}">停用</button>`
+                          : u.id !== currentUser?.id && u.status === 'DISABLED'
+                            ? `<button class="btn btn--outline btn--sm user-table__action-btn user-enable-btn" data-id="${u.id}">启用</button>`
+                            : '<span class="user-table__action-placeholder"></span>'}
+                      </div>
                     </td>
                   </tr>
                 `).join('')}
@@ -80,7 +113,7 @@ Router.register('user-mgmt', async () => {
       <div class="content-side">
         <div class="card stack--md">
           <h3>权限侧栏</h3>
-          <p class="text-sm text-muted">V1 只做三类角色管理：普通用户、设备管理员、超级管理员。</p>
+          <p class="text-sm text-muted">成员资料编辑已整合到本页；系统始终至少保留一个可用超级管理员账号。</p>
           <div class="stack--sm">
             <div class="meta-row"><span class="meta-row__label">普通用户</span><span class="meta-row__value text-sm">借还操作</span></div>
             <div class="meta-row"><span class="meta-row__label">设备管理员</span><span class="meta-row__value text-sm">设备+审批</span></div>
@@ -147,6 +180,19 @@ Router.register('user-mgmt', async () => {
         Utils.showToast('用户已启用');
         Router.navigate('user-mgmt');
       } catch (e) { Utils.showToast(e.message, 'error'); }
+    });
+  });
+
+  document.querySelectorAll('.user-profile-edit-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetUser = users.find((item) => String(item.id) === String(btn.dataset.id));
+      if (!targetUser) return;
+      openUserProfileEditorModal(targetUser, async (updatedUser) => {
+        if (String(updatedUser.id) === String(currentUser?.id)) {
+          Api.setUser(updatedUser);
+        }
+        Router.navigate('user-mgmt');
+      });
     });
   });
 });

@@ -49,18 +49,20 @@ class ReturnApprovalItemDetail(BaseModel):
     condition: str
     damage_type: Optional[str] = None
     damage_description: Optional[str] = None
-    photos: list[dict] = []
+    photos: list[dict] = Field(default_factory=list)
 
 
 class ReturnApprovalTaskOut(BaseModel):
     id: UUID
     return_order_id: UUID
+    equipment_order_id: Optional[UUID] = None
     return_order_no: Optional[str] = None
+    return_order_status: Optional[str] = None
     applicant_name: Optional[str] = None
     approver_id: UUID
     approver_name: Optional[str] = None
-    item_ids: list[UUID] = []
-    item_details: list[ReturnApprovalItemDetail] = []
+    item_ids: list[UUID] = Field(default_factory=list)
+    item_details: list[ReturnApprovalItemDetail] = Field(default_factory=list)
     status: str
     comment: Optional[str] = None
     decided_at: Optional[datetime] = None
@@ -74,6 +76,7 @@ class ReturnApprovalTaskOut(BaseModel):
 
 class ReturnOrderOut(BaseModel):
     id: UUID
+    equipment_order_id: UUID
     order_no: str
     borrow_order_id: UUID
     borrow_order_no: Optional[str] = None
@@ -84,8 +87,8 @@ class ReturnOrderOut(BaseModel):
     remark: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    items: list[ReturnOrderItemOut] = []
-    approval_tasks: list[ReturnApprovalTaskOut] = []
+    items: list[ReturnOrderItemOut] = Field(default_factory=list)
+    approval_tasks: list[ReturnApprovalTaskOut] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -93,6 +96,7 @@ class ReturnOrderOut(BaseModel):
 
 class ReturnOrderBrief(BaseModel):
     id: UUID
+    equipment_order_id: UUID
     order_no: str
     borrow_order_no: Optional[str] = None
     applicant_id: UUID

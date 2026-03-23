@@ -1,6 +1,12 @@
 // ===== PC Sidebar helper =====
 // Global unread notification count cache
 let _unreadNotificationCount = 0;
+let _menuBadgeState = {
+  managedAssets: 0,
+  borrowApprovals: 0,
+  returnApprovals: 0,
+  userMgmt: 0,
+};
 const _mobileTopShellScrollOffsets = {};
 
 async function refreshUnreadCount() {
@@ -10,6 +16,71 @@ async function refreshUnreadCount() {
   } catch { _unreadNotificationCount = 0; }
 }
 
+function buildMenuBadge(key, count) {
+  if (!count || count <= 0) return '';
+  return `<span class="chip chip--danger" data-menu-badge="${key}" style="margin-left:6px;font-size:11px;min-width:18px;text-align:center;">${count > 99 ? '99+' : count}</span>`;
+}
+
+function getManagedAssetsSeenKey(user) {
+  return user ? `managed_assets_seen_at:${user.id}` : '';
+}
+
+function getManagedAssetsSeenAt(user) {
+  if (!user) return '';
+  return localStorage.getItem(getManagedAssetsSeenKey(user)) || '';
+}
+
+function markManagedAssetsSeen() {
+  const user = Api.getUser();
+  if (!user || (user.role !== 'ASSET_ADMIN' && user.role !== 'SUPER_ADMIN')) return;
+  localStorage.setItem(getManagedAssetsSeenKey(user), new Date().toISOString());
+  _menuBadgeState.managedAssets = 0;
+  document.querySelectorAll('[data-menu-badge="managed-assets"]').forEach((el) => el.remove());
+}
+
+async function refreshAdminMenuBadges(user) {
+  if (!user || (user.role !== 'ASSET_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+    _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
+    return;
+  }
+
+  const managedAssetsSeenAt = getManagedAssetsSeenAt(user);
+  const hasManagedAssetsSeenAt = Boolean(managedAssetsSeenAt && !Number.isNaN(Date.parse(managedAssetsSeenAt)));
+  const managedAssetParams = { page_size: 1 };
+  if (user.role === 'ASSET_ADMIN') managedAssetParams.admin_id = user.id;
+  if (hasManagedAssetsSeenAt) managedAssetParams.updated_after = managedAssetsSeenAt;
+
+  const requests = [
+    Api.listAssets(managedAssetParams),
+    Api.listBorrowApprovalTasks({ status: 'PENDING', page_size: 1 }),
+    Api.listReturnApprovalTasks({ status: 'PENDING', page_size: 1 }),
+    user.role === 'SUPER_ADMIN'
+      ? Api.listRegistrations({ status: 'PENDING', page_size: 1 })
+      : Promise.resolve({ data: { total: 0 } }),
+  ];
+
+  const [managedAssetsRes, borrowRes, returnRes, registrationRes] = await Promise.allSettled(requests);
+  _menuBadgeState = {
+    managedAssets: hasManagedAssetsSeenAt && managedAssetsRes.status === 'fulfilled'
+      ? (managedAssetsRes.value.data?.total || 0)
+      : 0,
+    borrowApprovals: borrowRes.status === 'fulfilled' ? (borrowRes.value.data?.total || 0) : 0,
+    returnApprovals: returnRes.status === 'fulfilled' ? (returnRes.value.data?.total || 0) : 0,
+    userMgmt: registrationRes.status === 'fulfilled' ? (registrationRes.value.data?.total || 0) : 0,
+  };
+}
+
+async function ensureNavigationState(user = Api.getUser()) {
+  if (!Api.getToken() || !user) {
+    _unreadNotificationCount = 0;
+    _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
+    return;
+  }
+  const tasks = [refreshUnreadCount()];
+  if (user.role !== 'USER') tasks.push(refreshAdminMenuBadges(user));
+  await Promise.allSettled(tasks);
+}
+
 const MENU_ICON_MAP = {
   dashboard: 'home',
   notifications: 'bell',
@@ -17,7 +88,8 @@ const MENU_ICON_MAP = {
   'system-configs': 'sliders',
   'audit-logs': 'history',
   'asset-list': 'box',
-  categories: 'layers',
+  'managed-assets': 'box',
+  properties: 'layers',
   locations: 'mapPin',
   'recent-deleted-assets': 'archiveRestore',
   'my-orders': 'clipboardList',
@@ -31,48 +103,77 @@ function menuLink(name, label, extra = {}) {
   return { name, label, icon: MENU_ICON_MAP[name], ...extra };
 }
 
+function notificationMenuLink() {
+  return menuLink('notifications', '通知中心');
+}
+
 function getAdminLinks(user) {
   if (!user) return [];
   if (user.role === 'SUPER_ADMIN') {
     return [
-      menuLink('dashboard', '运营概览'),
-      menuLink('notifications', '通知中心', { badge: _unreadNotificationCount > 0 ? `<span class="chip chip--danger" style="margin-left:6px;font-size:11px;min-width:18px;text-align:center;">${_unreadNotificationCount > 99 ? '99+' : _unreadNotificationCount}</span>` : '' }),
-      { type: 'divider', label: '系统管理' },
-      menuLink('user-mgmt', '用户与注册审核'),
-      menuLink('system-configs', '系统配置'),
-      menuLink('audit-logs', '审计日志'),
+      { type: 'divider', label: '日常使用' },
+      menuLink('asset-list', '器材借用'),
+      menuLink('borrow-cart', '提交借用单'),
+      menuLink('my-orders', '我的订单'),
       { type: 'divider', label: '设备管理' },
-      menuLink('asset-list', '全部设备/工具'),
-      menuLink('categories', '分类管理'),
+      menuLink('managed-assets', '我的器材', { badge: buildMenuBadge('managed-assets', _menuBadgeState.managedAssets) }),
+      menuLink('properties', '属性管理'),
       menuLink('locations', '位置管理'),
       menuLink('recent-deleted-assets', '最近删除'),
-      { type: 'divider', label: '业务处理' },
-      menuLink('my-orders', '借用单管理'),
-      menuLink('my-returns', '归还单管理'),
-      menuLink('borrow-approvals', '借出审批'),
-      menuLink('return-approvals', '归还审批'),
+      { type: 'divider', label: '审批处理' },
+      menuLink('borrow-approvals', '借出审批', { badge: buildMenuBadge('borrow-approvals', _menuBadgeState.borrowApprovals) }),
+      menuLink('return-approvals', '归还审批', { badge: buildMenuBadge('return-approvals', _menuBadgeState.returnApprovals) }),
+      { type: 'divider', label: '系统管理' },
+      menuLink('user-mgmt', '用户管理', { badge: buildMenuBadge('user-mgmt', _menuBadgeState.userMgmt) }),
+      menuLink('system-configs', '系统配置'),
+      menuLink('audit-logs', '审计日志'),
     ];
   }
   if (user.role === 'ASSET_ADMIN') {
     return [
-      menuLink('dashboard', '工作台'),
-      menuLink('notifications', '通知中心', { badge: _unreadNotificationCount > 0 ? `<span class="chip chip--danger" style="margin-left:6px;font-size:11px;min-width:18px;text-align:center;">${_unreadNotificationCount > 99 ? '99+' : _unreadNotificationCount}</span>` : '' }),
-      menuLink('asset-list', '我的设备/工具'),
-      menuLink('borrow-approvals', '借出审批'),
-      menuLink('return-approvals', '归还审批'),
-      menuLink('my-orders', '借用单'),
-      menuLink('my-returns', '归还单'),
+      { type: 'divider', label: '日常使用' },
+      menuLink('asset-list', '器材借用'),
+      menuLink('borrow-cart', '提交借用单'),
+      menuLink('my-orders', '我的订单'),
+      { type: 'divider', label: '设备管理' },
+      menuLink('managed-assets', '我的器材', { badge: buildMenuBadge('managed-assets', _menuBadgeState.managedAssets) }),
+      { type: 'divider', label: '审批处理' },
+      menuLink('borrow-approvals', '借出审批', { badge: buildMenuBadge('borrow-approvals', _menuBadgeState.borrowApprovals) }),
+      menuLink('return-approvals', '归还审批', { badge: buildMenuBadge('return-approvals', _menuBadgeState.returnApprovals) }),
     ];
   }
   return [];
 }
 
+function getUserSidebarLinks() {
+  return [
+    { type: 'divider', label: '日常使用' },
+    menuLink('asset-list', '器材借用'),
+    menuLink('borrow-cart', '提交借用单'),
+    menuLink('my-orders', '我的订单'),
+  ];
+}
+
+function getSidebarLinks(user) {
+  if (!user) return [];
+  if (user.role === 'USER') {
+    return getUserSidebarLinks();
+  }
+  return getAdminLinks(user);
+}
+
+function getRoleLabel(user) {
+  if (!user) return '';
+  if (user.role === 'SUPER_ADMIN') return '超级管理员';
+  if (user.role === 'ASSET_ADMIN') return '设备管理员';
+  return '普通用户';
+}
+
 function getUserLinks() {
   return [
-    menuLink('asset-list', '设备列表'),
-    menuLink('borrow-cart', '借用清单'),
-    menuLink('my-orders', '借用单'),
-    menuLink('my-returns', '归还单'),
+    menuLink('asset-list', '器材借用'),
+    menuLink('borrow-cart', '提交借用单'),
+    menuLink('my-orders', '我的订单'),
   ];
 }
 
@@ -87,6 +188,7 @@ function renderMobileTopLink(item, active) {
 function renderMobileTopShell(active, bodyContent, links, options = {}) {
   const { compact = false, menuKey = 'default' } = options;
   const actionLinks = [
+    notificationMenuLink(),
     { name: 'profile', label: '个人中心', icon: 'users' },
     { label: '退出', icon: 'logout', onclick: 'handleLogout()' },
   ];
@@ -130,11 +232,8 @@ function bindMobileTopShell() {
 
 function renderSidebar(active) {
   const user = Api.getUser();
-  const isSuper = user && user.role === 'SUPER_ADMIN';
-  const isAssetAdmin = user && user.role === 'ASSET_ADMIN';
-  const links = getAdminLinks(user);
-
-  const roleLabel = isSuper ? '超级管理员' : '设备管理员';
+  const links = getSidebarLinks(user);
+  const roleLabel = getRoleLabel(user);
 
   return `
     <div class="sidebar">
@@ -153,6 +252,9 @@ function renderSidebar(active) {
         }).join('')}
       </nav>
       <div class="sidebar__footer">
+        <a href="#notifications" class="sidebar__link ${active === 'notifications' ? 'sidebar__link--active' : ''}">
+          ${Utils.svgIcon('bell')} 通知中心
+        </a>
         <a href="#profile" class="sidebar__user-info sidebar__user-link">
           <span class="sidebar__user-name">${Utils.escapeHtml(user?.full_name || '')}</span>
           <span class="sidebar__user-role">${roleLabel}</span>
@@ -183,21 +285,18 @@ async function ensureUnreadCount() {
 // ===== User PC Layout (regular users) =====
 function renderUserLayout(active, bodyContent) {
   const user = Api.getUser();
-  const links = getUserLinks();
+  if (window.innerWidth <= 768) {
+    return `
+      <div class="layout-user">
+        <div class="user-body">${bodyContent}</div>
+      </div>`;
+  }
   return `
-    <div class="layout-user">
-      <nav class="user-nav">
-        <span class="user-nav__brand">LAB OPS</span>
-        <div class="user-nav__links">
-          ${links.map(l => `<a href="#${l.name}" class="user-nav__link ${active === l.name ? 'user-nav__link--active' : ''}">${Utils.svgIcon(l.icon)} ${l.label}</a>`).join('')}
-        </div>
-        <div class="user-nav__right">
-          <span class="user-nav__username">${Utils.escapeHtml(user?.full_name || '')}</span>
-          <a href="#profile" class="btn btn--outline btn--sm">${Utils.svgIcon('users')} 个人中心</a>
-          <button class="btn btn--outline btn--sm" onclick="handleLogout()">${Utils.svgIcon('logout')} 退出</button>
-        </div>
-      </nav>
-      <div class="user-body">${bodyContent}</div>
+    <div class="layout-pc">
+      ${renderSidebar(active)}
+      <div class="main-content">
+        <div class="user-body">${bodyContent}</div>
+      </div>
     </div>`;
 }
 
@@ -303,6 +402,7 @@ Router.register('dashboard', async () => {
     RETURN_ORDER_CREATE: '提交归还单',
     RETURN_TASK_APPROVE: '通过归还审批',
     RETURN_TASK_REJECT: '驳回归还审批',
+    RETURN_ORDER_STOCK_IN: '确认入库',
     SYSTEM_CONFIG_UPDATE: '更新系统配置',
   };
 
@@ -332,22 +432,22 @@ Router.register('dashboard', async () => {
           value: totalAssets,
           label: '全局设备总数',
           className: 'stat-card--accent stat-card--metric-total',
-          href: buildRouteHref('asset-list'),
-          hint: '查看全部设备',
+          href: buildRouteHref('managed-assets'),
+          hint: '查看全部器材',
         })}
         ${renderDashboardStatCard({
           value: borrowedCount,
           label: '借出中',
           className: 'stat-card--warning stat-card--metric-borrowed',
-          href: buildRouteHref('asset-list', { status: 'BORROWED' }),
-          hint: '查看借出设备',
+          href: buildRouteHref('managed-assets', { status: 'BORROWED' }),
+          hint: '查看借出器材',
         })}
         ${renderDashboardStatCard({
           value: stockCount,
           label: '在库可借',
           className: 'stat-card--success stat-card--metric-stock',
-          href: buildRouteHref('asset-list', { status: 'IN_STOCK' }),
-          hint: '查看在库设备',
+          href: buildRouteHref('managed-assets', { status: 'IN_STOCK' }),
+          hint: '查看在库器材',
         })}
       </div>
 
@@ -410,22 +510,22 @@ Router.register('dashboard', async () => {
           value: totalAssets,
           label: '我的设备总数',
           className: 'stat-card--accent stat-card--metric-total',
-          href: buildRouteHref('asset-list'),
-          hint: '查看设备清单',
+          href: buildRouteHref('managed-assets'),
+          hint: '查看我的器材',
         })}
         ${renderDashboardStatCard({
           value: borrowedCount,
           label: '借出中',
           className: 'stat-card--warning stat-card--metric-borrowed',
-          href: buildRouteHref('asset-list', { status: 'BORROWED' }),
-          hint: '查看借出设备',
+          href: buildRouteHref('managed-assets', { status: 'BORROWED' }),
+          hint: '查看借出器材',
         })}
         ${renderDashboardStatCard({
           value: stockCount,
           label: '在库可借',
           className: 'stat-card--success stat-card--metric-stock',
-          href: buildRouteHref('asset-list', { status: 'IN_STOCK' }),
-          hint: '查看在库设备',
+          href: buildRouteHref('managed-assets', { status: 'IN_STOCK' }),
+          hint: '查看在库器材',
         })}
       </div>
 
@@ -451,7 +551,7 @@ Router.register('dashboard', async () => {
           <div class="card stack--md">
             <h3>快捷操作</h3>
             <div class="stack--sm">
-              <a href="#asset-list" class="btn btn--primary btn--full">管理我的设备</a>
+              <a href="#managed-assets" class="btn btn--primary btn--full">管理我的器材</a>
               <a href="#borrow-approvals" class="btn btn--outline btn--full">处理借出审批 ${pendingBorrowTasks > 0 ? `<span class="chip chip--danger" style="margin-left:6px;">${pendingBorrowTasks}</span>` : ''}</a>
               <a href="#return-approvals" class="btn btn--outline btn--full">处理归还审批 ${pendingReturnTasks > 0 ? `<span class="chip chip--danger" style="margin-left:6px;">${pendingReturnTasks}</span>` : ''}</a>
             </div>

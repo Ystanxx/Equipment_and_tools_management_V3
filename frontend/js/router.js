@@ -75,9 +75,9 @@ const Router = {
       return this.navigate('pending');
     }
 
-    // Refresh unread notification count for sidebar badge (non-blocking for speed)
-    if (token && user && user.role !== 'USER' && typeof refreshUnreadCount === 'function') {
-      refreshUnreadCount().catch(() => {});
+    // 在渲染前刷新导航气泡，确保侧栏和移动菜单状态一致。
+    if (token && user && typeof ensureNavigationState === 'function') {
+      await ensureNavigationState(user);
     }
 
     const handler = this.routes[name];
@@ -114,6 +114,82 @@ const Router = {
   },
 };
 
+let _inventoryStateSyncTimer = null;
+let _inventoryStateSyncBusy = false;
+let _lastInventoryAssetVersion = '';
+const LIVE_INVENTORY_REFRESH_ROUTES = new Set([
+  'dashboard',
+  'asset-list',
+  'managed-assets',
+  'asset-detail',
+  'my-orders',
+  'order-detail',
+  'borrow-approvals',
+  'return-approvals',
+  'borrow-detail',
+  'return-detail',
+]);
+
+function shouldSilentlyRefreshCurrentRoute() {
+  if (!LIVE_INVENTORY_REFRESH_ROUTES.has(Router.currentRoute)) return false;
+  if (document.querySelector('.modal-overlay')) return false;
+  const activeTag = document.activeElement?.tagName;
+  if (activeTag && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return false;
+  return true;
+}
+
+async function pollInventoryState(force = false) {
+  if (_inventoryStateSyncBusy) return;
+  if (!Api.getToken()) return;
+
+  _inventoryStateSyncBusy = true;
+  try {
+    const res = await Api.getAssetLiveState();
+    const assetVersion = res.data?.asset_version || '';
+    if (!assetVersion) return;
+
+    if (force || !_lastInventoryAssetVersion) {
+      _lastInventoryAssetVersion = assetVersion;
+      return;
+    }
+
+    if (assetVersion === _lastInventoryAssetVersion) return;
+
+    _lastInventoryAssetVersion = assetVersion;
+    if (typeof ensureNavigationState === 'function') {
+      await ensureNavigationState(Api.getUser());
+    }
+    window.dispatchEvent(new CustomEvent('inventory-state-sync', { detail: res.data || {} }));
+
+    if (shouldSilentlyRefreshCurrentRoute()) {
+      await Router.resolve();
+    }
+  } catch (error) {
+    console.warn('静默库存同步失败', error);
+  } finally {
+    _inventoryStateSyncBusy = false;
+  }
+}
+
+function startInventoryStateSync() {
+  if (_inventoryStateSyncTimer) return;
+  void pollInventoryState(true);
+  _inventoryStateSyncTimer = window.setInterval(() => {
+    void pollInventoryState();
+  }, 10000);
+}
+
+function stopInventoryStateSync() {
+  if (_inventoryStateSyncTimer) {
+    clearInterval(_inventoryStateSyncTimer);
+    _inventoryStateSyncTimer = null;
+  }
+  _lastInventoryAssetVersion = '';
+}
+
+window.startInventoryStateSync = startInventoryStateSync;
+window.stopInventoryStateSync = stopInventoryStateSync;
+
 // Determine initial route after user info
 window.addEventListener('DOMContentLoaded', async () => {
   const token = Api.getToken();
@@ -128,4 +204,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }
   Router.init();
+  if (Api.getToken()) {
+    startInventoryStateSync();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Api.getToken()) {
+    void pollInventoryState();
+  }
 });

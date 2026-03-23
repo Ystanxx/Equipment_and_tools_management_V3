@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.core.database import Base
 from app.core.deps import get_db
 from app.main import app
+from app.models.asset_type import AssetTypeOption
+from app.services.asset_type_service import seed_default_asset_types
 
 
 def _build_test_db_url() -> str:
@@ -46,8 +48,13 @@ TestSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
     _ensure_test_database_exists()
-    Base.metadata.drop_all(bind=engine)
+    with engine.connect() as conn:
+        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.commit()
     Base.metadata.create_all(bind=engine)
+    with TestSession() as session:
+        seed_default_asset_types(session)
     yield
     Base.metadata.drop_all(bind=engine)
 
@@ -59,6 +66,8 @@ def clean_tables():
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(text(f"TRUNCATE TABLE {table.name} CASCADE"))
         conn.commit()
+    with TestSession() as session:
+        seed_default_asset_types(session)
 
 
 @pytest.fixture
@@ -108,3 +117,10 @@ def admin_token(client):
 @pytest.fixture
 def auth_headers(admin_token):
     return {"Authorization": f"Bearer {admin_token}"}
+
+
+@pytest.fixture
+def asset_type_ids(db):
+    seed_default_asset_types(db)
+    items = db.query(AssetTypeOption).all()
+    return {item.name: str(item.id) for item in items}

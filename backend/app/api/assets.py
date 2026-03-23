@@ -1,11 +1,12 @@
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_active_user, require_admin_or_super, require_super_admin
 from app.models.user import User
-from app.schemas.asset import AssetCreate, AssetUpdate, AssetOut, AdminUpdateRequest
+from app.schemas.asset import AssetCreate, AssetUpdate, AssetOut, AdminUpdateRequest, AssetLiveStateOut
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import asset_service
 from app.utils.enums import AssetStatus
@@ -18,14 +19,17 @@ def _to_out(asset) -> AssetOut:
         id=asset.id,
         asset_code=asset.asset_code,
         name=asset.name,
-        asset_type=asset.asset_type,
+        asset_type_id=asset.asset_type_id,
+        asset_type_name=asset.asset_type_option.name if getattr(asset, "asset_type_option", None) else None,
         category_id=asset.category_id,
         category_name=asset.category.name if asset.category else None,
         location_id=asset.location_id,
         location_name=asset.location.name if asset.location else None,
         admin_id=asset.admin_id,
         admin_name=asset.admin.full_name if asset.admin else None,
+        borrower_name=getattr(asset, "borrower_name", None),
         status=asset.status,
+        display_status=getattr(asset, "display_status", asset.status.value if hasattr(asset.status, "value") else str(asset.status)),
         brand=asset.brand,
         model=asset.model,
         serial_number=asset.serial_number,
@@ -33,6 +37,8 @@ def _to_out(asset) -> AssetOut:
         entry_date=asset.entry_date,
         created_by=asset.created_by,
         remark=asset.remark,
+        preview_file_path=getattr(asset, "preview_file_path", None),
+        preview_thumb_path=getattr(asset, "preview_thumb_path", None),
         is_active=asset.is_active,
         created_at=asset.created_at,
         updated_at=asset.updated_at,
@@ -42,19 +48,20 @@ def _to_out(asset) -> AssetOut:
 @router.get("", response_model=ResponseSchema[PaginatedData[AssetOut]])
 def list_assets(
     keyword: str | None = None,
-    asset_type: str | None = None,
+    asset_type_id: uuid.UUID | None = None,
     category_id: uuid.UUID | None = None,
     location_id: uuid.UUID | None = None,
     admin_id: uuid.UUID | None = None,
     status: AssetStatus | None = None,
     in_stock_only: bool = False,
+    updated_after: datetime | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_active_user),
 ):
     items, total = asset_service.list_assets(
-        db, keyword, asset_type, category_id, location_id, admin_id, status, in_stock_only, page, page_size
+        db, keyword, asset_type_id, category_id, location_id, admin_id, status, in_stock_only, updated_after, page, page_size
     )
     data = PaginatedData(
         items=[_to_out(a) for a in items],
@@ -63,6 +70,15 @@ def list_assets(
         page_size=page_size,
     )
     return ResponseSchema(data=data)
+
+
+@router.get("/live-state", response_model=ResponseSchema[AssetLiveStateOut])
+def get_asset_live_state(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_active_user),
+):
+    data = asset_service.get_asset_live_state(db)
+    return ResponseSchema(data=AssetLiveStateOut(**data))
 
 
 @router.get("/deleted/recent", response_model=ResponseSchema[list[AssetOut]])

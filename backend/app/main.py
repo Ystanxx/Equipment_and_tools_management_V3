@@ -6,12 +6,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from sqlalchemy import inspect, or_
+from sqlalchemy.exc import IntegrityError
 
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import SessionLocal, engine
 from app.core.security import hash_password
+from app.models.asset_type import AssetTypeOption
 from app.models.user import User
+from app.services.asset_type_service import seed_default_asset_types
+from app.services.attachment_service import cleanup_expired_staged_attachments
 from app.utils.enums import UserRole, UserStatus
 
 import app.models  # noqa: F401 — ensure all models are imported for Alembic
@@ -26,7 +31,16 @@ def _is_test_mode() -> bool:
 def seed_super_admin():
     db = SessionLocal()
     try:
-        existing = db.query(User).filter(User.username == settings.SUPER_ADMIN_USERNAME).first()
+        existing = (
+            db.query(User)
+            .filter(
+                or_(
+                    User.username == settings.SUPER_ADMIN_USERNAME,
+                    User.email == settings.SUPER_ADMIN_EMAIL,
+                )
+            )
+            .first()
+        )
         if not existing:
             admin = User(
                 username=settings.SUPER_ADMIN_USERNAME,
@@ -38,6 +52,39 @@ def seed_super_admin():
             )
             db.add(admin)
             db.commit()
+    except IntegrityError:
+        # 并发启动或已有管理员记录时回滚，并将其视为已存在即可。
+        db.rollback()
+        existing = (
+            db.query(User)
+            .filter(
+                or_(
+                    User.username == settings.SUPER_ADMIN_USERNAME,
+                    User.email == settings.SUPER_ADMIN_EMAIL,
+                )
+            )
+            .first()
+        )
+        if existing:
+            return
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def seed_asset_types():
+    inspector = inspect(engine)
+    if not inspector.has_table("asset_types"):
+        return
+
+    db = SessionLocal()
+    try:
+        if db.query(AssetTypeOption.id).first():
+            return
+        seed_default_asset_types(db)
     finally:
         db.close()
 
@@ -49,12 +96,21 @@ async def lifespan(app: FastAPI):
         return
 
     seed_super_admin()
+    seed_asset_types()
 
-    # Start photo cleanup scheduler
+    # 启动照片与临时附件清理任务
     from apscheduler.schedulers.background import BackgroundScheduler
     from app.services.photo_cleanup_service import run_cleanup
     scheduler = BackgroundScheduler()
     scheduler.add_job(run_cleanup, "cron", hour=3, minute=0, id="photo_cleanup")
+    scheduler.add_job(
+        cleanup_expired_staged_attachments,
+        "interval",
+        minutes=5,
+        id="staged_attachment_cleanup",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
 
     yield

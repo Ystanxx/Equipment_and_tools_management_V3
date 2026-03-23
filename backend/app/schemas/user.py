@@ -33,3 +33,9 @@ class StatusUpdateRequest(BaseModel):
 
 class EmailNotificationPreferenceUpdateRequest(BaseModel):
     email_notifications_enabled: bool
+
+
+class UserProfileUpdateRequest(BaseModel):
+    username: str
+    full_name: str
+    email: str
