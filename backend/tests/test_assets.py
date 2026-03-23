@@ -1,6 +1,9 @@
 from io import BytesIO
 
 from PIL import Image
+from app.models.asset import Asset
+from app.models.borrow_order import BorrowOrder
+from app.utils.enums import AssetStatus, BorrowOrderStatus
 
 
 def test_create_asset(client, auth_headers, asset_type_ids):
@@ -166,6 +169,94 @@ def test_asset_display_status_shows_ready_for_pickup_after_all_approvals(client,
     detail_res = client.get(f"/api/v1/assets/{asset_id}", headers=auth_headers)
     assert detail_res.status_code == 200
     assert detail_res.json()["data"]["display_status"] == "READY_FOR_PICKUP"
+
+
+def test_asset_display_status_falls_back_to_borrowed_when_raw_status_is_stale(client, db, auth_headers, asset_type_ids):
+    admin_id = _get_admin_id(client, auth_headers)
+    create_res = client.post(
+        "/api/v1/assets",
+        json={"name": "脏状态借用设备", "asset_type_id": asset_type_ids["固定资产"], "admin_id": admin_id},
+        headers=auth_headers,
+    )
+    assert create_res.status_code == 200
+    asset_id = create_res.json()["data"]["id"]
+
+    order_res = client.post(
+        "/api/v1/borrow-orders",
+        json={"asset_ids": [asset_id], "purpose": "脏状态显示测试"},
+        headers=auth_headers,
+    )
+    assert order_res.status_code == 200
+    order_id = order_res.json()["data"]["id"]
+    task_id = order_res.json()["data"]["approval_tasks"][0]["id"]
+
+    approve_res = client.post(
+        f"/api/v1/borrow-approval-tasks/{task_id}/approve",
+        json={"comment": "审批通过"},
+        headers=auth_headers,
+    )
+    assert approve_res.status_code == 200
+
+    deliver_res = client.post(f"/api/v1/borrow-orders/{order_id}/deliver", headers=auth_headers)
+    assert deliver_res.status_code == 200
+
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    order = db.query(BorrowOrder).filter(BorrowOrder.id == order_id).first()
+    asset.status = AssetStatus.PENDING_BORROW_APPROVAL
+    order.status = BorrowOrderStatus.DELIVERED
+    db.commit()
+
+    list_res = client.get("/api/v1/assets", headers=auth_headers)
+    assert list_res.status_code == 200
+    item = next(row for row in list_res.json()["data"]["items"] if row["id"] == asset_id)
+    assert item["status"] == "PENDING_BORROW_APPROVAL"
+    assert item["display_status"] == "BORROWED"
+
+    detail_res = client.get(f"/api/v1/assets/{asset_id}", headers=auth_headers)
+    assert detail_res.status_code == 200
+    assert detail_res.json()["data"]["display_status"] == "BORROWED"
+
+
+def test_asset_display_status_falls_back_to_in_stock_when_raw_status_is_stale(client, db, auth_headers, asset_type_ids):
+    admin_id = _get_admin_id(client, auth_headers)
+    create_res = client.post(
+        "/api/v1/assets",
+        json={"name": "脏状态完成设备", "asset_type_id": asset_type_ids["固定资产"], "admin_id": admin_id},
+        headers=auth_headers,
+    )
+    assert create_res.status_code == 200
+    asset_id = create_res.json()["data"]["id"]
+
+    order_res = client.post(
+        "/api/v1/borrow-orders",
+        json={"asset_ids": [asset_id], "purpose": "脏状态完成测试"},
+        headers=auth_headers,
+    )
+    assert order_res.status_code == 200
+    order_id = order_res.json()["data"]["id"]
+    task_id = order_res.json()["data"]["approval_tasks"][0]["id"]
+
+    approve_res = client.post(
+        f"/api/v1/borrow-approval-tasks/{task_id}/approve",
+        json={"comment": "审批通过"},
+        headers=auth_headers,
+    )
+    assert approve_res.status_code == 200
+
+    deliver_res = client.post(f"/api/v1/borrow-orders/{order_id}/deliver", headers=auth_headers)
+    assert deliver_res.status_code == 200
+
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    order = db.query(BorrowOrder).filter(BorrowOrder.id == order_id).first()
+    asset.status = AssetStatus.PENDING_BORROW_APPROVAL
+    order.status = BorrowOrderStatus.COMPLETED
+    db.commit()
+
+    list_res = client.get("/api/v1/assets", headers=auth_headers)
+    assert list_res.status_code == 200
+    item = next(row for row in list_res.json()["data"]["items"] if row["id"] == asset_id)
+    assert item["status"] == "PENDING_BORROW_APPROVAL"
+    assert item["display_status"] == "IN_STOCK"
 
 
 def test_list_assets_includes_current_borrower_name(client, auth_headers, asset_type_ids):
