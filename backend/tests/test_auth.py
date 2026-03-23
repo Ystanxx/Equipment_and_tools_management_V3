@@ -1,3 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
+from app.core.security import decode_access_token
+
+
 def test_register_success(client):
     res = client.post("/api/v1/auth/register", json={
         "username": "testuser",
@@ -36,3 +41,20 @@ def test_login_wrong_password(client):
     })
     res = client.post("/api/v1/auth/login", json={"username": "user2", "password": "wrong"})
     assert res.status_code == 401
+    assert "用户名或密码错误" in res.json()["detail"]
+
+
+def test_login_remember_me_extends_expiry(client):
+    client.post("/api/v1/auth/register", json={
+        "username": "remember_user", "email": "remember@test.com", "password": "correct", "full_name": "Remember",
+    })
+    res = client.post("/api/v1/auth/login", json={
+        "username": "remember_user",
+        "password": "correct",
+        "remember_me": True,
+    })
+    assert res.status_code == 200
+
+    payload = decode_access_token(res.json()["data"]["access_token"])
+    expire_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    assert expire_at - datetime.now(timezone.utc) > timedelta(days=29)

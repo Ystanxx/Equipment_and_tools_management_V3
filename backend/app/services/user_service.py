@@ -75,3 +75,19 @@ def update_user_status(db: Session, user_id: uuid.UUID, new_status: UserStatus, 
     db.commit()
     db.refresh(user)
     return user
+
+
+def update_email_notification_preference(db: Session, user: User, enabled: bool) -> User:
+    user.email_notifications_enabled = enabled
+    audit_service.log(
+        db,
+        user.id,
+        "USER_EMAIL_NOTIFICATION_UPDATE",
+        "User",
+        user.id,
+        description=f"用户 {user.username} 将邮件通知设置为 {'开启' if enabled else '关闭'}",
+        snapshot={"email_notifications_enabled": enabled},
+    )
+    db.commit()
+    db.refresh(user)
+    return user

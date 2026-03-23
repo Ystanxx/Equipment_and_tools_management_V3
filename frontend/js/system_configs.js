@@ -67,7 +67,7 @@ Router.register('system-configs', async () => {
     },
     notification: {
       title: '通知开关',
-      desc: '当前先提供渠道级配置，后续可继续接入站内通知和邮件发送能力。',
+      desc: '超级管理员可在这里控制全局通知渠道；每个用户仍可在个人中心设置自己的邮件接收偏好。',
     },
   };
   const groupedConfigs = Object.entries(groupMeta)
@@ -75,27 +75,20 @@ Router.register('system-configs', async () => {
     .filter(section => section.items.length > 0);
 
   const mainContent = `
-    <div class="page-header">
-      <div class="page-header__info">
-        <h1 class="page-header__title">系统配置</h1>
-        <p class="page-header__desc">配置借用规则、图片策略与保留参数</p>
+    <div class="stack stack--page">
+      <div class="page-header">
+        <div class="page-header__info">
+          <h1 class="page-header__title">系统配置</h1>
+          <p class="page-header__desc">配置借用规则、图片策略与保留参数</p>
+        </div>
+        <div class="page-header__actions">
+          <button class="btn btn--primary" id="config-save-btn">保存配置</button>
+        </div>
       </div>
-      <div class="page-header__actions">
-        <button class="btn btn--primary" id="config-save-btn">保存配置</button>
-      </div>
-    </div>
 
-    <div class="content-row">
-      <div class="content-main stack--lg">
+      <div class="stack--lg">
         ${groupedConfigs.map(section => renderGroup(section.title, section.desc, section.items)).join('')}
         <div id="config-error" class="form-error hidden"></div>
-      </div>
-
-      <div class="content-side">
-        <div class="card stack--sm">
-          <h3>生效说明</h3>
-          <p class="text-sm text-muted">保存后，新提交的借用单和新上传的图片将立即使用最新配置。</p>
-        </div>
       </div>
     </div>`;
 

@@ -22,6 +22,7 @@ class AssetCreate(BaseModel):
 class AssetUpdate(BaseModel):
     name: str | None = None
     asset_type: AssetType | None = None
+    status: AssetStatus | None = None
     category_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
     brand: str | None = None

@@ -51,17 +51,18 @@ Router.register('return-submit', async (params) => {
   ];
 
   const formHtml = `
-    <div class="page-header">
-      <div class="page-header__info">
-        <h1 class="page-header__title">提交归还</h1>
-        <p class="page-header__desc">借用单 ${Utils.escapeHtml(order.order_no)} · ${availableItems.length} 件可归还</p>
+    <div class="stack stack--page">
+      <div class="page-header">
+        <div class="page-header__info">
+          <h1 class="page-header__title">提交归还</h1>
+          <p class="page-header__desc">借用单 ${Utils.escapeHtml(order.order_no)} · ${availableItems.length} 件可归还</p>
+        </div>
+        <div class="page-header__actions">
+          <button class="btn btn--outline btn--sm" onclick="Router.navigate('borrow-detail',{id:'${borrowOrderId}'})">返回借用单</button>
+        </div>
       </div>
-      <div class="page-header__actions">
-        <button class="btn btn--outline btn--sm" onclick="Router.navigate('borrow-detail',{id:'${borrowOrderId}'})">返回借用单</button>
-      </div>
-    </div>
 
-    ${availableItems.length === 0 ? '<div class="empty-state"><p>所有设备已提交归还</p></div>' : `
+      ${availableItems.length === 0 ? '<div class="empty-state"><p>所有设备已提交归还</p></div>' : `
     <div class="card stack--lg">
       <h3>选择归还设备</h3>
       <div class="stack--md" id="return-items-form">
@@ -88,9 +89,11 @@ Router.register('return-submit', async (params) => {
             </div>
             <div style="margin-left:28px;margin-top:6px;">
               <label class="form-label">归还照片 <span class="form-required">*必填，每件单独拍照</span></label>
-              <input type="file" class="return-photos" data-idx="${idx}" accept="image/jpeg,image/png,image/webp" multiple
-                     style="font-size:0.8125rem;">
-              <div class="return-photo-preview" data-idx="${idx}" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
+              <div class="return-photo-preview" data-idx="${idx}" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
+              <label class="btn btn--outline btn--sm" style="cursor:pointer;">
+                ${Utils.svgIcon('plus')} 添加照片
+                <input type="file" class="return-photos" data-idx="${idx}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none;">
+              </label>
             </div>
           </div>
         `).join('')}
@@ -102,28 +105,54 @@ Router.register('return-submit', async (params) => {
       </div>
       <div id="return-error" class="form-error hidden"></div>
       <button id="return-submit-btn" class="btn btn--primary btn--full">提交归还单</button>
-    </div>`}`;
+    </div>`}
+    </div>`;
 
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
   if (isAdmin) {
     app.innerHTML = renderPcLayout('my-returns', formHtml);
   } else {
-    app.innerHTML = `<div class="page--mobile"><div class="mobile-back-bar"><a href="#borrow-detail?id=${borrowOrderId}">${Utils.svgIcon('arrowLeft')} 返回借用单</a></div><div class="page" style="padding-top:8px;">${formHtml}</div></div>`;
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+      app.innerHTML = renderMobileUserShell('my-returns', formHtml, {
+        backHref: `borrow-detail?id=${borrowOrderId}`,
+        backLabel: '返回借用单',
+        compact: true,
+      });
+    } else {
+      app.innerHTML = renderUserLayout('my-returns', formHtml);
+    }
   }
 
-  // Photo preview on file select
+  // Photo accumulation per item (fix: camera returns 1 file at a time)
+  const _returnPhotos = {}; // idx -> File[]
+  function renderReturnPhotoPreview(idx) {
+    const preview = document.querySelector(`.return-photo-preview[data-idx="${idx}"]`);
+    if (!preview) return;
+    const photos = _returnPhotos[idx] || [];
+    preview.innerHTML = '';
+    photos.forEach((f, fi) => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;display:inline-block;';
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(f);
+      img.style.cssText = 'width:68px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--line);';
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.style.cssText = 'position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+      del.addEventListener('click', () => { photos.splice(fi, 1); renderReturnPhotoPreview(idx); });
+      wrap.appendChild(img);
+      wrap.appendChild(del);
+      preview.appendChild(wrap);
+    });
+  }
   document.querySelectorAll('.return-photos').forEach(input => {
     input.addEventListener('change', () => {
       const idx = input.dataset.idx;
-      const preview = document.querySelector(`.return-photo-preview[data-idx="${idx}"]`);
-      if (!preview) return;
-      preview.innerHTML = '';
-      for (const f of input.files) {
-        const img = document.createElement('img');
-        img.src = URL.createObjectURL(f);
-        img.style.cssText = 'width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--border);';
-        preview.appendChild(img);
-      }
+      if (!_returnPhotos[idx]) _returnPhotos[idx] = [];
+      for (const f of input.files) _returnPhotos[idx].push(f);
+      input.value = '';
+      renderReturnPhotoPreview(idx);
     });
   });
 
@@ -144,13 +173,13 @@ Router.register('return-submit', async (params) => {
       errEl.classList.add('hidden');
 
       const items = [];
-      const photoMap = {}; // idx -> FileList
+      const photoMap = {}; // itemIdx -> File[]
       document.querySelectorAll('.return-check:checked').forEach(cb => {
         const idx = cb.dataset.idx;
         const condition = document.querySelector(`.return-condition[data-idx="${idx}"]`).value;
         const desc = document.querySelector(`.return-damage-desc[data-idx="${idx}"]`)?.value?.trim() || null;
-        const fileInput = document.querySelector(`.return-photos[data-idx="${idx}"]`);
-        if (fileInput && fileInput.files.length > 0) photoMap[items.length] = fileInput.files;
+        const photos = _returnPhotos[idx] || [];
+        if (photos.length > 0) photoMap[items.length] = photos;
         items.push({
           borrow_order_item_id: cb.dataset.boiId,
           asset_id: cb.dataset.assetId,
@@ -169,8 +198,7 @@ Router.register('return-submit', async (params) => {
       let missingPhoto = false;
       document.querySelectorAll('.return-check:checked').forEach(cb => {
         const idx = cb.dataset.idx;
-        const fileInput = document.querySelector(`.return-photos[data-idx="${idx}"]`);
-        if (!fileInput || fileInput.files.length === 0) missingPhoto = true;
+        if (!_returnPhotos[idx] || _returnPhotos[idx].length === 0) missingPhoto = true;
       });
       if (missingPhoto) {
         errEl.textContent = '每件归还设备必须上传照片（必填项）';
@@ -259,19 +287,20 @@ Router.register('return-detail', async (params) => {
   } catch (e) { /* ignore */ }
 
   const detailHtml = `
-    <div class="page-header">
-      <div class="page-header__info">
-        <h1 class="page-header__title">${Utils.escapeHtml(order.order_no)}</h1>
-        <p class="page-header__desc">关联借用单：<a href="#borrow-detail?id=${order.borrow_order_id}">${Utils.escapeHtml(order.borrow_order_no || '-')}</a> · ${Utils.formatDateTime(order.created_at)}</p>
+    <div class="stack stack--page">
+      <div class="page-header">
+        <div class="page-header__info">
+          <h1 class="page-header__title">${Utils.escapeHtml(order.order_no)}</h1>
+          <p class="page-header__desc">关联借用单：<a href="#borrow-detail?id=${order.borrow_order_id}">${Utils.escapeHtml(order.borrow_order_no || '-')}</a> · ${Utils.formatDateTime(order.created_at)}</p>
+        </div>
+        <div class="page-header__actions">
+          <span class="chip ${sm.class}">${sm.label}</span>
+          <button class="btn btn--outline btn--sm" onclick="Router.navigate('my-returns')">返回列表</button>
+        </div>
       </div>
-      <div class="page-header__actions">
-        <span class="chip ${sm.class}">${sm.label}</span>
-        <button class="btn btn--outline btn--sm" onclick="Router.navigate('my-returns')">返回列表</button>
-      </div>
-    </div>
 
-    <div class="content-row">
-      <div class="content-main">
+      <div class="content-row">
+        <div class="content-main">
         <div class="card stack--md">
           <h3>归还明细 (${order.item_count} 件)</h3>
           <div class="table-wrapper">
@@ -295,9 +324,9 @@ Router.register('return-detail', async (params) => {
           </div>
         </div>
         ${order.remark ? `<div class="card stack--sm"><h3>备注</h3><p class="text-sm">${Utils.escapeHtml(order.remark)}</p></div>` : ''}
-      </div>
+        </div>
 
-      <div class="content-side">
+        <div class="content-side">
         <div class="card stack--md">
           <h3>审批进度</h3>
           <div class="stack--sm">
@@ -339,13 +368,23 @@ Router.register('return-detail', async (params) => {
           <div class="meta-row"><span class="meta-row__label">创建</span><span class="meta-row__value text-sm">${Utils.formatDateTime(order.created_at)}</span></div>
           `}
         </div>
+        </div>
       </div>
     </div>`;
 
   if (isAdmin) {
     app.innerHTML = renderPcLayout('my-returns', detailHtml);
   } else {
-    app.innerHTML = `<div class="page--mobile"><div class="mobile-back-bar"><a href="#my-returns">${Utils.svgIcon('arrowLeft')} 返回归还单列表</a></div><div class="page" style="padding-top:8px;">${detailHtml}</div></div>`;
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+      app.innerHTML = renderMobileUserShell('my-returns', detailHtml, {
+        backHref: 'my-returns',
+        backLabel: '返回归还单列表',
+        compact: true,
+      });
+    } else {
+      app.innerHTML = renderUserLayout('my-returns', detailHtml);
+    }
   }
 
   // Inline approve/reject on return detail
@@ -435,35 +474,32 @@ Router.register('my-returns', async (params) => {
       Router.navigate('my-returns', { status: e.target.value });
     });
   } else {
-    app.innerHTML = `
-      <div class="page--mobile has-bottom-nav">
-        <div class="page" style="padding-top:20px;">
-          <h1 style="font-size:1.625rem;margin-bottom:16px;">我的归还单</h1>
-          <div class="stack--md">
-            ${orders.length === 0 ? '<div class="empty-state"><p>暂无归还单</p></div>' :
-              orders.map(o => {
-                const sm = returnStatusMap[o.status] || { label: o.status, class: '' };
-                return `
-                  <div class="asset-card" data-id="${o.id}" style="cursor:pointer;">
-                    <div class="asset-card__header">
-                      <div>
-                        <div class="asset-card__title">${Utils.escapeHtml(o.order_no)}</div>
-                        <div class="asset-card__code">${o.item_count} 件 · 借用单 ${Utils.escapeHtml(o.borrow_order_no || '-')}</div>
-                      </div>
-                      <span class="chip ${sm.class}">${sm.label}</span>
-                    </div>
-                    <div class="asset-card__meta">${Utils.formatDateTime(o.created_at)}</div>
-                  </div>`;
-              }).join('')}
-          </div>
-        </div>
-        <nav class="bottom-nav">
-          <a href="#asset-list" class="bottom-nav__item">${Utils.svgIcon('box')}<span>设备</span></a>
-          <a href="#borrow-cart" class="bottom-nav__item">${Utils.svgIcon('wrench')}<span>清单</span></a>
-          <a href="#my-orders" class="bottom-nav__item">${Utils.svgIcon('tag')}<span>借用单</span></a>
-          <a href="#my-returns" class="bottom-nav__item bottom-nav__item--active">${Utils.svgIcon('undo')}<span>归还单</span></a>
-        </nav>
+    const isMobile = window.innerWidth <= 768;
+    const userBody = `
+      <h1 style="font-size:1.5rem;margin-bottom:16px;">我的归还单</h1>
+      <div class="asset-grid">
+        ${orders.length === 0 ? '<div class="empty-state" style="grid-column:1/-1;"><p>暂无归还单</p></div>' :
+          orders.map(o => {
+            const sm = returnStatusMap[o.status] || { label: o.status, class: '' };
+            return `
+              <div class="asset-card" data-id="${o.id}" style="cursor:pointer;">
+                <div class="asset-card__header">
+                  <div>
+                    <div class="asset-card__title">${Utils.escapeHtml(o.order_no)}</div>
+                    <div class="asset-card__code">${o.item_count} 件 · 借用单 ${Utils.escapeHtml(o.borrow_order_no || '-')}</div>
+                  </div>
+                  <span class="chip ${sm.class}">${sm.label}</span>
+                </div>
+                <div class="asset-card__meta">${Utils.formatDateTime(o.created_at)}</div>
+              </div>`;
+          }).join('')}
       </div>`;
+
+    if (isMobile) {
+      app.innerHTML = renderMobileUserShell('my-returns', userBody, { showBottomNav: true });
+    } else {
+      app.innerHTML = renderUserLayout('my-returns', userBody);
+    }
 
     document.querySelectorAll('.asset-card[data-id]').forEach(card => {
       card.addEventListener('click', () => Router.navigate('return-detail', { id: card.dataset.id }));

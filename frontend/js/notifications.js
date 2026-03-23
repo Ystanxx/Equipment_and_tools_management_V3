@@ -95,17 +95,7 @@ Router.register('notifications', async (params) => {
       ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('notifications',{page:${page+1},is_read:'${readFilter || ''}'})">下一页</button>` : ''}
     </div>` : ''}`;
 
-  const isMobile = window.innerWidth <= 768;
-  if (isMobile) {
-    app.innerHTML = `
-      <div class="mobile-back-bar">
-        <a href="#dashboard" class="mobile-back-bar__link">${Utils.svgIcon('arrowLeft')} 返回</a>
-        <span class="mobile-back-bar__title">通知中心</span>
-      </div>
-      <div style="padding:12px;">${mainContent}</div>`;
-  } else {
-    app.innerHTML = renderPcLayout('notifications', mainContent);
-  }
+  app.innerHTML = renderPcLayout('notifications', mainContent);
 
   // Event: mark single notification as read
   document.querySelectorAll('.mark-read-btn').forEach(btn => {

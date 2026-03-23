@@ -65,6 +65,16 @@ def list_assets(
     return ResponseSchema(data=data)
 
 
+@router.get("/deleted/recent", response_model=ResponseSchema[list[AssetOut]])
+def list_recent_deleted_assets(
+    limit: int = Query(5, ge=1, le=5),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    items = asset_service.list_recent_deleted_assets(db, limit)
+    return ResponseSchema(data=[_to_out(item) for item in items])
+
+
 @router.get("/{asset_id}", response_model=ResponseSchema[AssetOut])
 def get_asset(
     asset_id: uuid.UUID,
@@ -105,3 +115,23 @@ def update_admin(
 ):
     asset = asset_service.update_asset_admin(db, asset_id, body.admin_id, current_user)
     return ResponseSchema(data=_to_out(asset), message="管理员已变更")
+
+
+@router.post("/{asset_id}/restore", response_model=ResponseSchema[AssetOut])
+def restore_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    asset = asset_service.restore_asset(db, asset_id, current_user)
+    return ResponseSchema(data=_to_out(asset), message="设备已恢复")
+
+
+@router.delete("/{asset_id}", response_model=ResponseSchema[AssetOut])
+def delete_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    asset = asset_service.delete_asset(db, asset_id, current_user)
+    return ResponseSchema(data=_to_out(asset), message="设备已删除")

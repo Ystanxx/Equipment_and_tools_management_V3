@@ -1,132 +1,67 @@
 // ===== Login Page =====
 Router.register('login', async () => {
   const app = document.getElementById('app');
-  const isMobile = window.innerWidth <= 768;
 
-  if (isMobile) {
-    app.innerHTML = `
-      <div class="login-mobile">
-        <div class="login-hero">
-          <span class="tag">LAB OPS</span>
-          <h1 class="login-hero__title">器材借还</h1>
-          <p class="login-hero__desc">研究组内部设备管理，优先适配手机现场拍照与提交。</p>
+  app.innerHTML = `
+    <div class="login-page">
+      <div class="login-page__card">
+        <div class="login-page__header">
+          <div class="login-page__logo">LAB OPS</div>
+          <h1 class="login-page__title">器材管理系统</h1>
+          <p class="login-page__subtitle">实验室设备借还与台账管理平台</p>
         </div>
-
-        <div class="card login-card stack--lg" style="margin-top:20px;">
-          <div class="stack--sm">
-            <h3>安全登录</h3>
-            <p class="text-sm text-muted">首次启动默认超级管理员为 admin / admin。</p>
-          </div>
+        <div class="auth-form">
           <div class="form-group">
             <label class="form-label">用户名</label>
-            <input type="text" id="login-username" class="form-input" placeholder="admin" value="admin">
+            <input type="text" id="login-username" class="form-input" placeholder="请输入用户名">
           </div>
           <div class="form-group">
             <label class="form-label">密码</label>
-            <input type="password" id="login-password" class="form-input" placeholder="admin" value="admin">
+            <input type="password" id="login-password" class="form-input" placeholder="请输入密码">
           </div>
-          <div class="login-hint">
-            <span class="text-danger">默认超级管理员：admin / admin</span>
-            <span class="text-accent text-sm" style="font-weight:500;">PC / 手机均可登录</span>
+          <div class="auth-form__remember">
+            <label class="switch-row" for="login-remember">
+              <input type="checkbox" id="login-remember">
+              <span>30天免登录</span>
+            </label>
           </div>
-          <button id="login-btn" class="btn btn--primary btn--full">
-            ${Utils.svgIcon('arrowRight')}
-            登录并进入
-          </button>
-          <div id="login-error" class="form-error hidden"></div>
-        </div>
-
-        <p style="text-align:center;margin-top:16px;">
-          <a href="#register" class="text-sm text-accent">还没有账号？去注册</a>
-        </p>
-      </div>`;
-  } else {
-    app.innerHTML = `
-      <div class="login-pc">
-        <div class="login-pc__left">
-          <div class="login-hero">
-            <span class="tag">DESKTOP CONSOLE</span>
-            <h1 style="font-size:3.75rem;font-weight:600;letter-spacing:-0.5px;">器材借还工作台</h1>
-            <p class="login-hero__desc" style="font-size:1.125rem;">PC 端用于台账、状态维护与归还审核；手机端用于现场拍照、借还提交与回传。</p>
-          </div>
-
-          <div class="card stack--md">
-            <h4>登录后会进入哪一端</h4>
-            <p class="text-sm text-muted">普通用户默认进入移动端借还界面；管理员与超级管理员进入 PC 管理工作台。</p>
-            <div class="flex gap-md">
-              <span class="chip chip--active">普通用户</span>
-              <span class="chip chip--outline">PC 端, 管理</span>
-              <span class="chip chip--outline">管理员</span>
-            </div>
-          </div>
-
-          <div class="flex gap-lg">
-            <div class="card stack--sm" style="flex:1;">
-              <h4>移动端</h4>
-              <p class="text-xs text-muted">借出、归还、现场拍照与方便拖放的卡片式列表。</p>
-            </div>
-            <div class="card stack--sm" style="flex:1;">
-              <h4>PC 端</h4>
-              <p class="text-xs text-muted">工具台账、批量操作、审批 / 归还审核页为主。</p>
-            </div>
+          <div class="auth-form__actions">
+            <div id="login-error" class="sr-only" aria-live="polite"></div>
+            <button id="login-btn" class="btn btn--primary btn--full auth-form__submit">登录</button>
           </div>
         </div>
-
-        <div class="login-pc__right">
-          <div class="login-pc__right-inner">
-            <div class="card login-card stack--lg">
-              <div class="stack--sm">
-                <h3>安全登录</h3>
-                <p class="text-sm text-muted">首次启动默认超级管理员为 admin / admin。若已修改密码请使用新凭据登录。</p>
-              </div>
-              <div class="form-group">
-                <label class="form-label">用户名</label>
-                <input type="text" id="login-username" class="form-input" placeholder="admin" value="admin">
-              </div>
-              <div class="form-group">
-                <label class="form-label">密码</label>
-                <input type="password" id="login-password" class="form-input" placeholder="admin" value="admin">
-              </div>
-              <div class="login-hint">
-                <span class="text-danger text-xs">默认超级管理员：admin / admin</span>
-                <span class="text-accent text-xs" style="font-weight:500;">Escape 可清</span>
-              </div>
-              <button id="login-btn" class="btn btn--primary btn--full">
-                → 登录并进入工作台
-              </button>
-              <div id="login-error" class="form-error hidden"></div>
-            </div>
-
-            <p style="text-align:center;">
-              <a href="#register" class="text-sm text-accent">还没有账号？去注册</a>
-            </p>
-          </div>
+        <div class="login-page__footer">
+          <a href="#register" class="text-sm text-accent">还没有账号？注册新用户</a>
         </div>
-      </div>`;
-  }
+      </div>
+      <p class="login-page__copyright text-xs text-muted">Lab Equipment Management System</p>
+    </div>`;
 
   // Bind login
   document.getElementById('login-btn').addEventListener('click', handleLogin);
   document.getElementById('login-password').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleLogin();
   });
+  document.getElementById('login-username').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('login-password').focus();
+  });
 });
 
 async function handleLogin() {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;
+  const rememberMe = document.getElementById('login-remember').checked;
   const errEl = document.getElementById('login-error');
-  errEl.classList.add('hidden');
+  errEl.textContent = '';
 
   if (!username || !password) {
-    errEl.textContent = '请输入用户名和密码';
-    errEl.classList.remove('hidden');
+    showAuthToast(errEl, '请输入用户名和密码');
     return;
   }
 
   try {
-    const res = await Api.login({ username, password });
-    Api.setToken(res.data.access_token);
+    const res = await Api.login({ username, password, remember_me: rememberMe });
+    Api.setToken(res.data.access_token, { remember: rememberMe, expiresAt: res.data.expires_at });
     const meRes = await Api.me();
     Api.setUser(meRes.data);
     await Api.bootstrapSystemConfigs();
@@ -140,8 +75,7 @@ async function handleLogin() {
       Router.navigate('dashboard');
     }
   } catch (e) {
-    errEl.textContent = e.message;
-    errEl.classList.remove('hidden');
+    showAuthToast(errEl, e.message);
   }
 }
 
@@ -150,82 +84,57 @@ Router.register('register', async () => {
   const app = document.getElementById('app');
   const isMobile = window.innerWidth <= 768;
 
-  const formHtml = `
-    <div class="card stack--lg">
-      <div class="stack--sm">
-        <h3>注册账号</h3>
-        <p class="text-sm text-muted">填写基本信息后提交，等待管理员审核通过即可使用。</p>
-      </div>
-      <div class="form-group">
-        <label class="form-label">用户名 *</label>
-        <input type="text" id="reg-username" class="form-input" placeholder="用户名">
-      </div>
-      <div class="form-group">
-        <label class="form-label">姓名 *</label>
-        <input type="text" id="reg-fullname" class="form-input" placeholder="真实姓名">
-      </div>
-      <div class="form-group">
-        <label class="form-label">邮箱 *</label>
-        <input type="email" id="reg-email" class="form-input" placeholder="your@email.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">密码 *</label>
-        <input type="password" id="reg-password" class="form-input" placeholder="至少6位">
-      </div>
-      <div class="form-group">
-        <label class="form-label">手机号</label>
-        <input type="text" id="reg-phone" class="form-input" placeholder="选填">
-      </div>
-      <div class="form-group">
-        <label class="form-label">部门 / 实验室</label>
-        <input type="text" id="reg-department" class="form-input" placeholder="选填">
-      </div>
-      <button id="reg-btn" class="btn btn--primary btn--full">提交注册</button>
-      <div id="reg-error" class="form-error hidden"></div>
-    </div>
-    <p style="text-align:center;margin-top:16px;">
-      <a href="#login" class="text-sm text-accent">已有账号？去登录</a>
-    </p>`;
-
-  if (isMobile) {
-    app.innerHTML = `
-      <div class="login-mobile">
-        <div class="login-hero">
-          <span class="tag">LAB OPS</span>
-          <h1 class="login-hero__title">注册账号</h1>
-          <p class="login-hero__desc">填写基本信息后提交，等待管理员审核。</p>
+  app.innerHTML = `
+    <div class="login-page">
+      <div class="login-page__card" style="max-width:480px;">
+        <div class="login-page__header">
+          <div class="login-page__logo">LAB OPS</div>
+          <h1 class="login-page__title">注册账号</h1>
+          <p class="login-page__subtitle">填写信息后提交，等待管理员审核通过即可使用</p>
         </div>
-        ${formHtml}
-      </div>`;
-  } else {
-    app.innerHTML = `
-      <div class="login-pc">
-        <div class="login-pc__left">
-          <div class="login-hero">
-            <span class="tag">REGISTER</span>
-            <h1 style="font-size:3.75rem;font-weight:600;letter-spacing:-0.5px;">创建账号</h1>
-            <p class="login-hero__desc" style="font-size:1.125rem;">注册后等待管理员审核通过即可登录使用。普通用户默认进入移动端借还界面。</p>
+        <div class="auth-form">
+          <div class="auth-form__grid">
+            <div class="form-group">
+              <label class="form-label">用户名 *</label>
+              <input type="text" id="reg-username" class="form-input" placeholder="用户名">
+            </div>
+            <div class="form-group">
+              <label class="form-label">姓名 *</label>
+              <input type="text" id="reg-fullname" class="form-input" placeholder="真实姓名">
+            </div>
           </div>
-          <div class="card stack--md">
-            <h4>注册流程</h4>
-            <ol style="padding-left:18px;font-size:0.875rem;color:var(--muted);line-height:1.8;">
-              <li>填写用户名、姓名、邮箱、密码</li>
-              <li>提交后进入待审核状态</li>
-              <li>管理员审核通过后即可登录</li>
-            </ol>
+          <div class="form-group">
+            <label class="form-label">邮箱 *</label>
+            <input type="email" id="reg-email" class="form-input" placeholder="your@email.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">密码 *</label>
+            <input type="password" id="reg-password" class="form-input" placeholder="至少6位">
+          </div>
+          <div class="auth-form__grid">
+            <div class="form-group">
+              <label class="form-label">手机号（选填）</label>
+              <input type="text" id="reg-phone" class="form-input" placeholder="手机号">
+            </div>
+            <div class="form-group">
+              <label class="form-label">部门 / 实验室（选填）</label>
+              <input type="text" id="reg-department" class="form-input" placeholder="部门">
+            </div>
+          </div>
+          <div class="auth-form__actions">
+            <div id="reg-error" class="sr-only" aria-live="polite"></div>
+            <button id="reg-btn" class="btn btn--primary btn--full auth-form__submit">提交注册</button>
           </div>
         </div>
-        <div class="login-pc__right">
-          <div class="login-pc__right-inner">
-            ${formHtml}
-          </div>
+        <div class="login-page__footer">
+          <a href="#login" class="text-sm text-accent">已有账号？返回登录</a>
         </div>
-      </div>`;
-  }
+      </div>
+    </div>`;
 
   document.getElementById('reg-btn').addEventListener('click', async () => {
     const errEl = document.getElementById('reg-error');
-    errEl.classList.add('hidden');
+    errEl.textContent = '';
 
     const data = {
       username: document.getElementById('reg-username').value.trim(),
@@ -237,8 +146,7 @@ Router.register('register', async () => {
     };
 
     if (!data.username || !data.full_name || !data.email || !data.password) {
-      errEl.textContent = '请填写所有必填项';
-      errEl.classList.remove('hidden');
+      showAuthToast(errEl, '请填写所有必填项');
       return;
     }
 
@@ -247,11 +155,16 @@ Router.register('register', async () => {
       Utils.showToast('注册成功，请等待管理员审核', 'success');
       Router.navigate('login');
     } catch (e) {
-      errEl.textContent = e.message;
-      errEl.classList.remove('hidden');
+      showAuthToast(errEl, e.message);
     }
   });
 });
+
+function showAuthToast(target, message) {
+  if (!message) return;
+  target.textContent = message;
+  Utils.showToast(message, 'error');
+}
 
 // ===== Pending Approval Page =====
 Router.register('pending', async () => {
@@ -268,6 +181,7 @@ Router.register('pending', async () => {
 // ===== Profile Page =====
 Router.register('profile', async () => {
   const app = document.getElementById('app');
+  await Api.bootstrapSystemConfigs();
   const user = Api.getUser();
   if (!user) return Router.navigate('login');
 
@@ -275,6 +189,10 @@ Router.register('profile', async () => {
 
   const isAdmin = user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN';
   const roleLabel = Utils.roleMap[user.role] || user.role;
+  const isGlobalEmailEnabled = Boolean(Api.getSystemConfig('enable_email_notifications', false));
+  const emailPreferenceTip = isGlobalEmailEnabled
+    ? '系统邮件通道已开启，关键业务变更会按你的个人偏好发送到注册邮箱。'
+    : '系统邮件通道当前由超级管理员全局关闭；你仍可先保存个人偏好，待全局开启后生效。';
 
   const mainContent = `
     <div class="page-header">
@@ -297,6 +215,22 @@ Router.register('profile', async () => {
             ${user.department ? `<div class="meta-row"><span class="meta-row__label">部门</span><span class="meta-row__value">${Utils.escapeHtml(user.department)}</span></div>` : ''}
             ${user.employee_id ? `<div class="meta-row"><span class="meta-row__label">工号</span><span class="meta-row__value">${Utils.escapeHtml(user.employee_id)}</span></div>` : ''}
             <div class="meta-row"><span class="meta-row__label">注册时间</span><span class="meta-row__value">${Utils.formatDateTime(user.created_at)}</span></div>
+          </div>
+        </div>
+
+        <div class="card stack--md">
+          <div class="stack--sm">
+            <h3>通知偏好</h3>
+            <p class="text-sm text-muted">邮件会发送到当前账户邮箱：${Utils.escapeHtml(user.email)}</p>
+          </div>
+          <div class="preference-card">
+            <label class="switch-row switch-row--between" for="profile-email-notify">
+              <span class="preference-card__copy">
+                <span class="preference-card__title">邮件通知</span>
+                <span class="preference-card__hint">${Utils.escapeHtml(emailPreferenceTip)}</span>
+              </span>
+              <input type="checkbox" id="profile-email-notify" ${user.email_notifications_enabled ? 'checked' : ''}>
+            </label>
           </div>
         </div>
 
@@ -328,16 +262,38 @@ Router.register('profile', async () => {
     </div>`;
 
   const isMobile = window.innerWidth <= 768;
-  if (isMobile) {
-    app.innerHTML = `
-      <div class="mobile-back-bar">
-        <a href="#${isAdmin ? 'dashboard' : 'asset-list'}" class="mobile-back-bar__link">${Utils.svgIcon('arrowLeft')} 返回</a>
-        <span class="mobile-back-bar__title">个人中心</span>
-      </div>
-      <div style="padding:12px;">${mainContent}</div>`;
-  } else {
+  if (isMobile && !isAdmin) {
+    app.innerHTML = renderMobileUserShell('profile', mainContent, {
+      backHref: 'asset-list',
+      backLabel: '返回',
+      compact: true,
+    });
+  } else if (isAdmin) {
     app.innerHTML = renderPcLayout('profile', mainContent);
+  } else {
+    app.innerHTML = renderUserLayout('profile', mainContent);
   }
+
+  document.getElementById('profile-email-notify').addEventListener('change', async (event) => {
+    const input = event.currentTarget;
+    const targetEnabled = input.checked;
+    input.disabled = true;
+
+    try {
+      const res = await Api.updateMyEmailPreference(targetEnabled);
+      Api.setUser(res.data);
+      if (!isGlobalEmailEnabled && targetEnabled) {
+        Utils.showToast('个人邮件偏好已保存，当前仍受系统全局开关控制', 'info');
+      } else {
+        Utils.showToast(targetEnabled ? '邮件通知已开启' : '邮件通知已关闭', 'success');
+      }
+    } catch (e) {
+      input.checked = !targetEnabled;
+      Utils.showToast(e.message, 'error');
+    } finally {
+      input.disabled = false;
+    }
+  });
 
   document.getElementById('pwd-save-btn').addEventListener('click', async () => {
     const errEl = document.getElementById('pwd-error');

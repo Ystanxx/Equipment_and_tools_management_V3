@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_admin_or_super
+from app.core.deps import get_db, require_admin_or_super, require_super_admin
 from app.models.user import User
 from app.schemas.asset_category import CategoryCreate, CategoryUpdate, CategoryOut
 from app.schemas.common import ResponseSchema
@@ -26,7 +26,7 @@ def list_categories(
 def create_category(
     body: CategoryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(require_super_admin),
 ):
     cat = category_service.create_category(db, body)
     return ResponseSchema(data=CategoryOut.model_validate(cat), message="分类已创建")
@@ -37,17 +37,17 @@ def update_category(
     cat_id: uuid.UUID,
     body: CategoryUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(require_super_admin),
 ):
     cat = category_service.update_category(db, cat_id, body)
     return ResponseSchema(data=CategoryOut.model_validate(cat), message="分类已更新")
 
 
-@router.delete("/{cat_id}", response_model=ResponseSchema[CategoryOut])
+@router.delete("/{cat_id}", response_model=ResponseSchema[dict])
 def delete_category(
     cat_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(require_super_admin),
 ):
-    cat = category_service.deactivate_category(db, cat_id)
-    return ResponseSchema(data=CategoryOut.model_validate(cat), message="分类已停用")
+    data = category_service.delete_category(db, cat_id, current_user.id)
+    return ResponseSchema(data=data, message="分类已删除")
