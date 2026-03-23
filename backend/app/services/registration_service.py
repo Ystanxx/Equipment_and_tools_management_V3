@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from app.models.registration_request import RegistrationRequest
 from app.models.user import User
 from app.utils.enums import RegistrationStatus, UserStatus
+from app.services import audit_service
 
 
 def list_registration_requests(
@@ -39,6 +40,15 @@ def approve_registration(db: Session, request_id: uuid.UUID, reviewer_id: uuid.U
     if user:
         user.status = UserStatus.ACTIVE
 
+    audit_service.log(
+        db,
+        reviewer_id,
+        "REGISTRATION_APPROVE",
+        "RegistrationRequest",
+        reg.id,
+        description=f"通过注册申请 {reg.id}",
+        snapshot={"user_id": str(reg.user_id)},
+    )
     db.commit()
     db.refresh(reg)
     return reg
@@ -58,6 +68,15 @@ def reject_registration(
     reg.reject_reason = reason
     reg.reviewed_at = datetime.now(timezone.utc)
 
+    audit_service.log(
+        db,
+        reviewer_id,
+        "REGISTRATION_REJECT",
+        "RegistrationRequest",
+        reg.id,
+        description=f"驳回注册申请 {reg.id}",
+        snapshot={"user_id": str(reg.user_id), "reason": reason},
+    )
     db.commit()
     db.refresh(reg)
     return reg

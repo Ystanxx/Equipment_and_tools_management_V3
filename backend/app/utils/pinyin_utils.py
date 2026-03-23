@@ -7,15 +7,18 @@ def get_pinyin_prefix(name: str) -> str:
     if not cleaned:
         return "X"
 
-    has_chinese = bool(re.search(r"[\u4e00-\u9fff]", cleaned))
+    prefix_parts: list[str] = []
+    for char in cleaned:
+        if re.match(r"[\u4e00-\u9fff]", char):
+            initials = pinyin(char, style=Style.FIRST_LETTER, errors="ignore")
+            if initials and initials[0] and initials[0][0].isalpha():
+                prefix_parts.append(initials[0][0])
+            continue
 
-    if has_chinese:
-        initials = pinyin(cleaned, style=Style.FIRST_LETTER, errors="ignore")
-        prefix = "".join([item[0] for item in initials if item[0].isalpha()])
-    else:
-        prefix = "".join([ch for ch in cleaned if ch.isalpha()])
+        if char.isalpha():
+            prefix_parts.append(char)
 
-    prefix = prefix.upper()
+    prefix = "".join(prefix_parts).upper()
 
     if not prefix:
         return "X"

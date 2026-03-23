@@ -13,3 +13,4 @@ from app.models.borrow_approval_task import BorrowApprovalTask  # noqa: F401
 from app.models.return_order import ReturnOrder  # noqa: F401
 from app.models.return_order_item import ReturnOrderItem  # noqa: F401
 from app.models.return_approval_task import ReturnApprovalTask  # noqa: F401
+from app.models.system_config import SystemConfig  # noqa: F401

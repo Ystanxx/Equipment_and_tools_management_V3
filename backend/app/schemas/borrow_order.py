@@ -12,7 +12,7 @@ class BorrowCartItem(BaseModel):
 
 
 class BorrowOrderCreate(BaseModel):
-    asset_ids: list[UUID] = Field(..., min_length=1, max_length=20)
+    asset_ids: list[UUID] = Field(..., min_length=1)
     purpose: Optional[str] = None
     expected_return_date: Optional[str] = None
     remark: Optional[str] = None

@@ -10,6 +10,7 @@ function renderSidebar(active) {
       { name: 'dashboard', label: '运营概览', icon: 'home' },
       { type: 'divider', label: '系统管理' },
       { name: 'user-mgmt', label: '用户与注册审核', icon: 'users' },
+      { name: 'system-configs', label: '系统配置', icon: 'tag' },
       { name: 'audit-logs', label: '审计日志', icon: 'tag' },
       { type: 'divider', label: '设备管理' },
       { name: 'asset-list', label: '全部设备/工具', icon: 'wrench' },
@@ -129,6 +130,7 @@ Router.register('dashboard', async () => {
     RETURN_ORDER_CREATE: '提交归还单',
     RETURN_TASK_APPROVE: '通过归还审批',
     RETURN_TASK_REJECT: '驳回归还审批',
+    SYSTEM_CONFIG_UPDATE: '更新系统配置',
   };
 
   // ----- Super Admin Dashboard -----
@@ -195,6 +197,7 @@ Router.register('dashboard', async () => {
             <h3>系统管理</h3>
             <div class="stack--sm">
               <a href="#user-mgmt" class="btn btn--primary btn--full">用户与注册审核</a>
+              <a href="#system-configs" class="btn btn--outline btn--full">系统配置</a>
               <a href="#asset-list" class="btn btn--outline btn--full">全部设备管理</a>
               <a href="#audit-logs" class="btn btn--outline btn--full">审计日志</a>
             </div>

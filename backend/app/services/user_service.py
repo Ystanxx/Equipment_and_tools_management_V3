@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 
 from app.models.user import User
 from app.utils.enums import UserRole, UserStatus
+from app.services import audit_service
 
 
 def list_users(
@@ -45,6 +46,14 @@ def update_user_role(db: Session, user_id: uuid.UUID, new_role: UserRole, operat
     if new_role == UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能设置超级管理员角色")
     user.role = new_role
+    audit_service.log(
+        db,
+        operator.id,
+        "USER_ROLE_UPDATE",
+        "User",
+        user.id,
+        description=f"将用户 {user.username} 角色修改为 {new_role.value}",
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -55,6 +64,14 @@ def update_user_status(db: Session, user_id: uuid.UUID, new_status: UserStatus, 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能修改自己的状态")
     user = get_user(db, user_id)
     user.status = new_status
+    audit_service.log(
+        db,
+        operator.id,
+        "USER_STATUS_UPDATE",
+        "User",
+        user.id,
+        description=f"将用户 {user.username} 状态修改为 {new_status.value}",
+    )
     db.commit()
     db.refresh(user)
     return user

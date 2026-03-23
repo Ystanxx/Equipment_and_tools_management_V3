@@ -61,16 +61,17 @@ const Router = {
 };
 
 // Determine initial route after user info
-(async function initApp() {
+window.addEventListener('DOMContentLoaded', async () => {
   const token = Api.getToken();
   if (token) {
     try {
       const res = await Api.me();
       Api.setUser(res.data);
+      await Api.bootstrapSystemConfigs();
     } catch {
       Api.clearToken();
       Api.clearUser();
     }
   }
   Router.init();
-})();
+});

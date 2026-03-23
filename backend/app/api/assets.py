@@ -103,5 +103,5 @@ def update_admin(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin),
 ):
-    asset = asset_service.update_asset_admin(db, asset_id, body.admin_id)
+    asset = asset_service.update_asset_admin(db, asset_id, body.admin_id, current_user)
     return ResponseSchema(data=_to_out(asset), message="管理员已变更")

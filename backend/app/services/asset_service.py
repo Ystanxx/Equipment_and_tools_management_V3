@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.asset import AssetCreate, AssetUpdate
 from app.services.asset_number_service import generate_asset_code
 from app.utils.enums import UserRole, AssetStatus
+from app.services import audit_service
 
 
 def list_assets(
@@ -79,6 +80,16 @@ def create_asset(db: Session, data: AssetCreate, current_user: User) -> Asset:
         remark=data.remark,
     )
     db.add(asset)
+    db.flush()
+    audit_service.log(
+        db,
+        current_user.id,
+        "ASSET_CREATE",
+        "Asset",
+        asset.id,
+        description=f"创建设备 {asset_code}",
+        snapshot={"asset_code": asset_code, "name": data.name},
+    )
     db.commit()
     db.refresh(asset)
     return asset
@@ -93,12 +104,21 @@ def update_asset(db: Session, asset_id: uuid.UUID, data: AssetUpdate, current_us
         val = getattr(data, field, None)
         if val is not None:
             setattr(asset, field, val)
+    audit_service.log(
+        db,
+        current_user.id,
+        "ASSET_UPDATE",
+        "Asset",
+        asset.id,
+        description=f"更新设备 {asset.asset_code}",
+        snapshot={"name": asset.name, "status": asset.status.value if hasattr(asset.status, 'value') else asset.status},
+    )
     db.commit()
     db.refresh(asset)
     return asset
 
 
-def update_asset_admin(db: Session, asset_id: uuid.UUID, new_admin_id: uuid.UUID) -> Asset:
+def update_asset_admin(db: Session, asset_id: uuid.UUID, new_admin_id: uuid.UUID, operator: User) -> Asset:
     asset = get_asset(db, asset_id)
     admin = db.query(User).filter(User.id == new_admin_id).first()
     if not admin:
@@ -106,6 +126,15 @@ def update_asset_admin(db: Session, asset_id: uuid.UUID, new_admin_id: uuid.UUID
     if admin.role not in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="指定用户不是管理员角色")
     asset.admin_id = new_admin_id
+    audit_service.log(
+        db,
+        operator.id,
+        "ASSET_ADMIN_UPDATE",
+        "Asset",
+        asset.id,
+        description=f"变更设备管理员为 {admin.username}",
+        snapshot={"asset_code": asset.asset_code, "admin_id": str(new_admin_id)},
+    )
     db.commit()
     db.refresh(asset)
     return asset

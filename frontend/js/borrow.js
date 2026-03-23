@@ -2,6 +2,10 @@
 Router.register('borrow-cart', async () => {
   const app = document.getElementById('app');
   const cart = Api.getCart();
+  await Api.bootstrapSystemConfigs();
+  const maxItems = Api.getSystemConfig('borrow_order_max_items', 20);
+  const requirePurpose = Api.getSystemConfig('require_borrow_purpose', false);
+  const requireExpectedReturnTime = Api.getSystemConfig('require_expected_return_time', false);
 
   app.innerHTML = `
     <div class="page--mobile has-bottom-nav">
@@ -9,9 +13,9 @@ Router.register('borrow-cart', async () => {
         <div class="flex-between" style="margin-bottom:16px;">
           <div>
             <h1 style="font-size:1.625rem;">借用清单</h1>
-            <p class="text-xs text-muted">最多可添加 20 件设备</p>
+            <p class="text-xs text-muted">最多可添加 ${maxItems} 件设备</p>
           </div>
-          <span class="chip chip--active">${cart.length} / 20</span>
+          <span class="chip chip--active">${cart.length} / ${maxItems}</span>
         </div>
 
         ${cart.length === 0 ? `
@@ -39,11 +43,11 @@ Router.register('borrow-cart', async () => {
           <div class="card stack--lg" style="margin-top:20px;">
             <h3>借用信息</h3>
             <div class="form-group">
-              <label class="form-label">借用说明 / 用途 <span class="form-required">*必填</span></label>
+              <label class="form-label">借用说明 / 用途 ${requirePurpose ? '<span class="form-required">*必填</span>' : '<span class="text-xs text-muted">选填</span>'}</label>
               <textarea id="cart-purpose" class="form-textarea" placeholder="请说明借用原因和用途"></textarea>
             </div>
             <div class="form-group">
-              <label class="form-label">预计归还日期（选填）</label>
+              <label class="form-label">预计归还日期${requireExpectedReturnTime ? ' <span class="form-required">*必填</span>' : '（选填）'}</label>
               <input type="date" id="cart-return-date" class="form-input">
             </div>
             <div class="form-group">
@@ -52,7 +56,7 @@ Router.register('borrow-cart', async () => {
             </div>
             <div class="form-group">
               <label class="form-label">借出照片 <span class="form-required">*必填，拍照留痕</span></label>
-              <input type="file" id="cart-photos" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="font-size:0.8125rem;">
+              <input type="file" id="cart-photos" accept="image/jpeg,image/png,image/webp" multiple style="font-size:0.8125rem;">
               <p class="text-xs text-muted" style="margin-top:4px;">支持 jpg/png/webp，可多选，用于记录借出时设备状态</p>
               <div id="cart-photo-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             </div>
@@ -106,8 +110,13 @@ Router.register('borrow-cart', async () => {
       const remark = document.getElementById('cart-remark').value.trim() || null;
       const photoInput = document.getElementById('cart-photos');
 
-      if (!purpose) {
-        errEl.textContent = '请填写借用说明/用途（必填项）';
+      if (requirePurpose && !purpose) {
+        errEl.textContent = '当前系统要求填写借用说明/用途';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      if (requireExpectedReturnTime && !returnDate) {
+        errEl.textContent = '当前系统要求填写预计归还日期';
         errEl.classList.remove('hidden');
         return;
       }
@@ -350,7 +359,7 @@ Router.register('borrow-detail', async (params) => {
         <div class="card stack--sm">
           <h3>借出照片</h3>
           <div class="photo-gallery">
-            ${orderPhotos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join('')}
+            ${orderPhotos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join('')}
           </div>
         </div>` : ''}
       </div>

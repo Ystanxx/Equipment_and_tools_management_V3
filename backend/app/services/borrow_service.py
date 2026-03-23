@@ -11,7 +11,7 @@ from app.models.borrow_order_item import BorrowOrderItem
 from app.models.borrow_approval_task import BorrowApprovalTask
 from app.models.user import User
 from app.utils.enums import AssetStatus, BorrowOrderStatus, ApprovalTaskStatus
-from app.services import audit_service
+from app.services import audit_service, system_config_service
 
 
 def _generate_order_no(db: Session) -> str:
@@ -39,10 +39,18 @@ def create_borrow_order(
     expected_return_date: str | None = None,
     remark: str | None = None,
 ) -> BorrowOrder:
-    if len(asset_ids) > 20:
-        raise HTTPException(status_code=400, detail="一次最多借出 20 件")
+    max_items = int(system_config_service.get_config_value(db, "borrow_order_max_items"))
+    require_purpose = bool(system_config_service.get_config_value(db, "require_borrow_purpose"))
+    require_expected_return_time = bool(system_config_service.get_config_value(db, "require_expected_return_time"))
+
+    if len(asset_ids) > max_items:
+        raise HTTPException(status_code=400, detail=f"一次最多借出 {max_items} 件")
     if len(set(asset_ids)) != len(asset_ids):
         raise HTTPException(status_code=400, detail="存在重复设备")
+    if require_purpose and not (purpose or "").strip():
+        raise HTTPException(status_code=400, detail="当前系统要求必须填写借用用途")
+    if require_expected_return_time and not expected_return_date:
+        raise HTTPException(status_code=400, detail="当前系统要求必须填写预计归还时间")
 
     # 查询并锁定设备
     assets = db.query(Asset).filter(Asset.id.in_(asset_ids)).all()

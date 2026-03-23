@@ -35,6 +35,7 @@ Router.register('asset-list', async (params) => {
 
 function renderMobileAssetList(app, assets, total, page, keyword, statusFilter, user) {
   const stockCount = assets.filter(a => a.status === 'IN_STOCK').length;
+  const maxItems = Api.getSystemConfig('borrow_order_max_items', 20);
   app.innerHTML = `
     <div class="page--mobile has-bottom-nav">
       <div class="page" style="padding-top:20px;">
@@ -125,7 +126,7 @@ function renderMobileAssetList(app, assets, total, page, keyword, statusFilter, 
         const cartNav = document.querySelector('.bottom-nav a[href="#borrow-cart"] span');
         if (cartNav) cartNav.textContent = `清单(${Api.getCart().length})`;
       } else {
-        Utils.showToast('已在清单中或清单已满 (20)', 'error');
+        Utils.showToast(`已在清单中或清单已满 (${maxItems})`, 'error');
       }
     });
   });
@@ -297,13 +298,13 @@ Router.register('asset-detail', async (params) => {
           <h3>库存照片</h3>
           <div id="asset-photo-gallery" class="photo-gallery" style="margin-bottom:8px;">
             ${inventoryPhotos.length > 0 ? inventoryPhotos.map(p =>
-              `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
+              `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
             ).join('') : '<p class="text-sm text-muted">暂无照片</p>'}
           </div>
           ${isAdmin ? `
           <div class="form-group" style="margin-top:8px;">
             <label class="form-label">上传库存照片</label>
-            <input type="file" id="asset-photo-upload" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="font-size:0.8125rem;">
+            <input type="file" id="asset-photo-upload" accept="image/jpeg,image/png,image/webp" multiple style="font-size:0.8125rem;">
             <div id="asset-upload-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;" disabled>上传</button>
           </div>` : ''}
@@ -334,7 +335,7 @@ Router.register('asset-detail', async (params) => {
     addCartBtn.addEventListener('click', () => {
       const ok = Api.addToCart({ id: addCartBtn.dataset.id, asset_code: addCartBtn.dataset.code, name: addCartBtn.dataset.name, location_name: addCartBtn.dataset.loc });
       if (ok) { Utils.showToast('已加入借用清单'); addCartBtn.textContent = '已加入'; addCartBtn.disabled = true; }
-      else { Utils.showToast('已在清单中或清单已满', 'error'); }
+      else { Utils.showToast(`已在清单中或清单已满 (${Api.getSystemConfig('borrow_order_max_items', 20)})`, 'error'); }
     });
   }
 
@@ -485,7 +486,7 @@ Router.register('asset-form', async (params) => {
           <h3>库存照片 <span class="form-required">*必填，拍照留痕</span></h3>
           <p class="text-sm text-muted" style="margin-top:-8px;">上传设备入库时的照片，作为基准对比。支持 jpg/png/webp。</p>
           <div class="form-group">
-            <input type="file" id="af-photos" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="font-size:0.8125rem;">
+            <input type="file" id="af-photos" accept="image/jpeg,image/png,image/webp" multiple style="font-size:0.8125rem;">
             <div id="af-photo-preview" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
           </div>
         </div>` : ''}

@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -71,6 +71,8 @@ if FRONTEND_DIR.exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="接口不存在")
         file_path = FRONTEND_DIR / full_path
         if full_path and file_path.exists() and file_path.is_file():
             return FileResponse(file_path)

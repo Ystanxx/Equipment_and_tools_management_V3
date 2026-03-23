@@ -59,14 +59,19 @@ def reject_task(db: Session, task_id: uuid.UUID, user: User, comment: str | None
     task.comment = comment
     task.decided_at = datetime.now(timezone.utc)
 
-    # 驳回 → 相关设备恢复在库
-    for item_id in task.item_ids:
-        from app.models.borrow_order_item import BorrowOrderItem
-        item = db.query(BorrowOrderItem).filter(BorrowOrderItem.id == item_id).first()
-        if item:
-            asset = db.query(Asset).filter(Asset.id == item.asset_id).first()
-            if asset and asset.status == AssetStatus.PENDING_BORROW_APPROVAL:
-                asset.status = AssetStatus.IN_STOCK
+    # 驳回后，整张借用单不再继续审批，其余待处理任务跳过，相关设备统一回到在库。
+    from app.models.borrow_order_item import BorrowOrderItem
+
+    sibling_tasks = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.order_id == task.order_id).all()
+    for sibling in sibling_tasks:
+        if sibling.id != task.id and sibling.status == ApprovalTaskStatus.PENDING:
+            sibling.status = ApprovalTaskStatus.SKIPPED
+
+    order_items = db.query(BorrowOrderItem).filter(BorrowOrderItem.order_id == task.order_id).all()
+    for item in order_items:
+        asset = db.query(Asset).filter(Asset.id == item.asset_id).first()
+        if asset and asset.status == AssetStatus.PENDING_BORROW_APPROVAL:
+            asset.status = AssetStatus.IN_STOCK
 
     _sync_order_status(db, task.order_id)
 
