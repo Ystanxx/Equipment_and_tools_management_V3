@@ -88,7 +88,8 @@ function renderMobileAssetList(app, assets, total, page, keyword, statusFilter, 
       <nav class="bottom-nav">
         <a href="#asset-list" class="bottom-nav__item bottom-nav__item--active">${Utils.svgIcon('box')}<span>设备</span></a>
         <a href="#borrow-cart" class="bottom-nav__item">${Utils.svgIcon('wrench')}<span>清单(${Api.getCart().length})</span></a>
-        <a href="#my-orders" class="bottom-nav__item">${Utils.svgIcon('tag')}<span>我的单</span></a>
+        <a href="#my-orders" class="bottom-nav__item">${Utils.svgIcon('tag')}<span>借用单</span></a>
+        <a href="#my-returns" class="bottom-nav__item">${Utils.svgIcon('undo')}<span>归还单</span></a>
       </nav>
     </div>`;
 
@@ -242,14 +243,22 @@ Router.register('asset-detail', async (params) => {
     return;
   }
 
+  // Load inventory photos
+  let inventoryPhotos = [];
+  try {
+    const pr = await Api.listAttachments({ related_type: 'Asset', related_id: asset.id, photo_type: 'INVENTORY' });
+    inventoryPhotos = pr.data || [];
+  } catch (e) { /* ignore */ }
+
   const detailHtml = `
     <div class="page-header">
       <div class="page-header__info">
         <h1 class="page-header__title">${Utils.escapeHtml(asset.name)}</h1>
-        <p class="page-header__desc">${Utils.escapeHtml(asset.asset_code)}</p>
+        <p class="page-header__desc">${Utils.escapeHtml(asset.asset_code)} · ${Utils.assetTypeMap[asset.asset_type] || asset.asset_type} · ${Utils.escapeHtml(asset.category_name || '未分类')}</p>
       </div>
       <div class="page-header__actions">
         ${Utils.statusChip(asset.status)}
+        ${asset.status === 'IN_STOCK' ? `<button class="btn btn--primary btn--sm" id="detail-add-cart" data-id="${asset.id}" data-code="${Utils.escapeHtml(asset.asset_code)}" data-name="${Utils.escapeHtml(asset.name)}" data-loc="${Utils.escapeHtml(asset.location_name || '')}">加入借用清单</button>` : ''}
         ${isAdmin ? `<button class="btn btn--secondary btn--sm" onclick="Router.navigate('asset-form',{id:'${asset.id}'})">编辑</button>` : ''}
         <button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list')">返回列表</button>
       </div>
@@ -279,7 +288,18 @@ Router.register('asset-detail', async (params) => {
       <div class="content-side">
         <div class="card stack--md">
           <h3>库存照片</h3>
-          <p class="text-sm text-muted">照片上传将在后续阶段接入。</p>
+          <div id="asset-photo-gallery" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+            ${inventoryPhotos.length > 0 ? inventoryPhotos.map(p =>
+              `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line);" onclick="window.open('/uploads/${Utils.escapeHtml(p.file_path)}','_blank')">`
+            ).join('') : '<p class="text-sm text-muted">暂无照片</p>'}
+          </div>
+          ${isAdmin ? `
+          <div class="form-group" style="margin-top:8px;">
+            <label class="form-label">上传库存照片</label>
+            <input type="file" id="asset-photo-upload" accept="image/*" multiple style="font-size:0.8125rem;">
+            <div id="asset-upload-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
+            <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;" disabled>上传</button>
+          </div>` : ''}
         </div>
       </div>
     </div>`;
@@ -288,6 +308,42 @@ Router.register('asset-detail', async (params) => {
     app.innerHTML = renderPcLayout('asset-list', detailHtml);
   } else {
     app.innerHTML = `<div class="page--mobile"><div class="page">${detailHtml}</div></div>`;
+  }
+
+  // Add to cart button
+  const addCartBtn = document.getElementById('detail-add-cart');
+  if (addCartBtn) {
+    addCartBtn.addEventListener('click', () => {
+      const ok = Api.addToCart({ id: addCartBtn.dataset.id, asset_code: addCartBtn.dataset.code, name: addCartBtn.dataset.name, location_name: addCartBtn.dataset.loc });
+      if (ok) { Utils.showToast('已加入借用清单'); addCartBtn.textContent = '已加入'; addCartBtn.disabled = true; }
+      else { Utils.showToast('已在清单中或清单已满', 'error'); }
+    });
+  }
+
+  // Photo upload for admin
+  const photoInput = document.getElementById('asset-photo-upload');
+  const uploadBtn = document.getElementById('asset-upload-btn');
+  if (photoInput && uploadBtn) {
+    photoInput.addEventListener('change', () => {
+      const preview = document.getElementById('asset-upload-preview');
+      preview.innerHTML = '';
+      for (const f of photoInput.files) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.style.cssText = 'width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);';
+        preview.appendChild(img);
+      }
+      uploadBtn.disabled = photoInput.files.length === 0;
+    });
+    uploadBtn.addEventListener('click', async () => {
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = '上传中...';
+      for (const f of photoInput.files) {
+        try { await Api.uploadAttachment(f, 'INVENTORY', 'Asset', asset.id); } catch (e) { console.warn('Upload failed:', e); }
+      }
+      Utils.showToast('照片上传成功');
+      Router.navigate('asset-detail', { id: asset.id });
+    });
   }
 });
 

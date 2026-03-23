@@ -41,12 +41,26 @@ class ReturnOrderItemOut(BaseModel):
 
 # ===== Approval task response =====
 
+class ReturnApprovalItemDetail(BaseModel):
+    id: UUID
+    asset_id: UUID
+    asset_code_snapshot: str
+    asset_name_snapshot: str
+    condition: str
+    damage_type: Optional[str] = None
+    damage_description: Optional[str] = None
+    photos: list[dict] = []
+
+
 class ReturnApprovalTaskOut(BaseModel):
     id: UUID
     return_order_id: UUID
+    return_order_no: Optional[str] = None
+    applicant_name: Optional[str] = None
     approver_id: UUID
     approver_name: Optional[str] = None
     item_ids: list[UUID] = []
+    item_details: list[ReturnApprovalItemDetail] = []
     status: str
     comment: Optional[str] = None
     decided_at: Optional[datetime] = None

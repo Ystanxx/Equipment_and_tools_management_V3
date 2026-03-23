@@ -120,13 +120,12 @@ Router.register('locations', async () => {
   });
 
   document.querySelectorAll('.loc-disable-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('确认停用该位置？')) return;
-      try {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('停用位置', '确认停用该存放位置？停用后新建设备将无法选择此位置。', async () => {
         await Api.deleteLocation(btn.dataset.id);
         Utils.showToast('位置已停用');
         Router.navigate('locations');
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   });
 

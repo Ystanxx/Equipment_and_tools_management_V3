@@ -56,3 +56,20 @@
 .pending-page__icon { font-size: 3rem; }
 .pending-page__title { font-size: 1.5rem; font-weight: 600; }
 .pending-page__desc { color: var(--muted); max-width: 320px; }
+
+/* ===== Mobile back bar ===== */
+.mobile-back-bar {
+  padding: 12px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.mobile-back-bar a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+}
+.mobile-back-bar a:hover { text-decoration: underline; }

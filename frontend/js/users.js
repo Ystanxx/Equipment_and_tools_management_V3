@@ -103,15 +103,14 @@ Router.register('user-mgmt', async () => {
     });
   });
 
-  // Registration reject
+  // Registration reject with modal
   document.querySelectorAll('.reg-reject-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const reason = prompt('驳回原因（可选）：');
-      try {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('驳回注册申请', '请填写驳回原因（可选）：', async (reason) => {
         await Api.rejectRegistration(btn.dataset.id, reason);
         Utils.showToast('已驳回');
         Router.navigate('user-mgmt');
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   });
 
@@ -129,15 +128,14 @@ Router.register('user-mgmt', async () => {
     });
   });
 
-  // Disable user
+  // Disable user with modal
   document.querySelectorAll('.user-disable-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('确认停用该用户？')) return;
-      try {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('停用用户', '确认停用该用户？停用后该用户将无法登录。', async () => {
         await Api.updateUserStatus(btn.dataset.id, 'DISABLED');
         Utils.showToast('用户已停用');
         Router.navigate('user-mgmt');
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   });
 
