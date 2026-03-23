@@ -14,6 +14,15 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "./uploads"
 
+    # SMTP email settings
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_SSL: bool = True
+    SMTP_FROM_NAME: str = "器材管理系统"
+    SMTP_FROM_EMAIL: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

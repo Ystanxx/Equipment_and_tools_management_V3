@@ -311,11 +311,16 @@ Router.register('borrow-detail', async (params) => {
   const canCancel = order.applicant_id === user.id && order.status === 'PENDING_APPROVAL';
   const canReturn = order.applicant_id === user.id && (order.status === 'DELIVERED' || order.status === 'PARTIALLY_RETURNED');
 
-  // Load borrow order photos
+  // Load borrow order photos & timeline
   let orderPhotos = [];
+  let timelineEvents = [];
   try {
     const pr = await Api.listAttachments({ related_type: 'BorrowOrder', related_id: order.id, photo_type: 'BORROW_ORDER' });
     orderPhotos = pr.data || [];
+  } catch (e) { /* ignore */ }
+  try {
+    const tr = await Api.getOrderTimeline(order.id);
+    timelineEvents = tr.data || [];
   } catch (e) { /* ignore */ }
 
   const detailHtml = `
@@ -391,10 +396,22 @@ Router.register('borrow-detail', async (params) => {
         </div>
 
         <div class="card stack--sm">
-          <h3>时间线</h3>
+          <h3>事件时间线</h3>
+          ${timelineEvents.length > 0 ? `
+          <div class="timeline">
+            ${timelineEvents.map(ev => `
+              <div class="timeline__item">
+                <div class="timeline__dot"></div>
+                <div class="timeline__content">
+                  <span class="text-sm">${Utils.escapeHtml(ev.description || ev.action)}</span>
+                  <span class="text-xs text-muted">${Utils.formatDateTime(ev.created_at)}</span>
+                </div>
+              </div>`).join('')}
+          </div>` : `
           <div class="meta-row"><span class="meta-row__label">创建</span><span class="meta-row__value text-sm">${Utils.formatDateTime(order.created_at)}</span></div>
           ${order.delivered_at ? `<div class="meta-row"><span class="meta-row__label">交付</span><span class="meta-row__value text-sm">${Utils.formatDateTime(order.delivered_at)}</span></div>` : ''}
-          ${order.expected_return_date ? `<div class="meta-row"><span class="meta-row__label">预计归还</span><span class="meta-row__value text-sm">${Utils.escapeHtml(order.expected_return_date)}</span></div>` : ''}
+          `}
+          ${order.expected_return_date ? `<div class="meta-row" style="margin-top:8px;"><span class="meta-row__label">预计归还</span><span class="meta-row__value text-sm">${Utils.escapeHtml(order.expected_return_date)}</span></div>` : ''}
         </div>
       </div>
     </div>`;

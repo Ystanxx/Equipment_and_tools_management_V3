@@ -177,11 +177,21 @@ const Api = {
 
   // Audit Logs
   listAuditLogs(params) { return this.get('/audit-logs', params); },
+  getOrderTimeline(orderId) { return this.get(`/audit-logs/order-timeline/${orderId}`); },
 
   // Return Approval Tasks
   listReturnApprovalTasks(params) { return this.get('/return-approval-tasks', params); },
   approveReturnTask(id, comment) { return this.post(`/return-approval-tasks/${id}/approve`, { comment }); },
   rejectReturnTask(id, comment) { return this.post(`/return-approval-tasks/${id}/reject`, { comment }); },
+
+  // Auth - password
+  changePassword(oldPassword, newPassword) { return this.put('/auth/password', { old_password: oldPassword, new_password: newPassword }); },
+
+  // Notifications
+  listNotifications(params) { return this.get('/notifications', params); },
+  getUnreadCount() { return this.get('/notifications/unread-count'); },
+  markNotificationRead(id) { return this.post(`/notifications/${id}/read`); },
+  markAllNotificationsRead() { return this.post('/notifications/read-all'); },
 
   // System Configs
   listSystemConfigs() { return this.get('/system-configs'); },

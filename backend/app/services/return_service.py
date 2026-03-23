@@ -19,7 +19,7 @@ from app.utils.enums import (
     ReturnItemCondition,
     ApprovalTaskStatus,
 )
-from app.services import audit_service
+from app.services import audit_service, notification_service
 
 
 def _generate_return_order_no(db: Session) -> str:
@@ -132,6 +132,19 @@ def create_return_order(
         db.add(task)
 
     audit_service.log(db, applicant.id, "RETURN_ORDER_CREATE", "ReturnOrder", return_order.id, return_order.id, f"提交归还单 {order_no}，共 {len(items_input)} 件")
+
+    # 通知各管理员有新归还审批
+    for approver_id in admin_items.keys():
+        notification_service.create(
+            db,
+            recipient_id=approver_id,
+            title="新归还单待审批",
+            content=f"用户 {applicant.full_name} 提交了归还单 {order_no}，包含 {len(admin_items[approver_id])} 件您负责的设备，请尽快审批。",
+            notification_type="RETURN",
+            related_type="ReturnOrder",
+            related_id=return_order.id,
+        )
+
     db.commit()
     db.refresh(return_order)
     return return_order

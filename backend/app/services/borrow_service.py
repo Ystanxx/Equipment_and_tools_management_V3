@@ -11,7 +11,7 @@ from app.models.borrow_order_item import BorrowOrderItem
 from app.models.borrow_approval_task import BorrowApprovalTask
 from app.models.user import User
 from app.utils.enums import AssetStatus, BorrowOrderStatus, ApprovalTaskStatus
-from app.services import audit_service, system_config_service
+from app.services import audit_service, notification_service, system_config_service
 
 
 def _generate_order_no(db: Session) -> str:
@@ -108,6 +108,19 @@ def create_borrow_order(
         db.add(task)
 
     audit_service.log(db, applicant.id, "BORROW_ORDER_CREATE", "BorrowOrder", order.id, order.id, f"提交借用单 {order_no}，共 {len(assets)} 件")
+
+    # 通知各管理员有新借用审批
+    for approver_id in admin_items.keys():
+        notification_service.create(
+            db,
+            recipient_id=approver_id,
+            title="新借用单待审批",
+            content=f"用户 {applicant.full_name} 提交了借用单 {order_no}，包含 {len(admin_items[approver_id])} 件您负责的设备，请尽快审批。",
+            notification_type="BORROW",
+            related_type="BorrowOrder",
+            related_id=order.id,
+        )
+
     db.commit()
     db.refresh(order)
     return order

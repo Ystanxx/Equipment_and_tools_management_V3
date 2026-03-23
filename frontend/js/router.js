@@ -39,6 +39,11 @@ const Router = {
       return this.navigate('pending');
     }
 
+    // Refresh unread notification count for sidebar badge (non-blocking for speed)
+    if (token && user && user.role !== 'USER' && typeof refreshUnreadCount === 'function') {
+      refreshUnreadCount().catch(() => {});
+    }
+
     const handler = this.routes[name];
     if (handler) {
       const app = document.getElementById('app');

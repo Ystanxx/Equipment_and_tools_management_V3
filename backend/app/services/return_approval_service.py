@@ -18,7 +18,7 @@ from app.utils.enums import (
     ReturnItemCondition,
     UserRole,
 )
-from app.services import audit_service
+from app.services import audit_service, notification_service
 
 
 def list_return_tasks(
@@ -52,6 +52,7 @@ def approve_return_task(
 
     audit_service.log(db, user.id, "RETURN_TASK_APPROVE", "ReturnApprovalTask", task.id, task.return_order_id, f"通过归还审批，{len(task.item_ids)} 件")
 
+    has_loss_or_damage = False
     # 根据各明细的 condition 更新设备状态
     for item_id in task.item_ids:
         ri = db.query(ReturnOrderItem).filter(ReturnOrderItem.id == item_id).first()
@@ -65,10 +66,36 @@ def approve_return_task(
             asset.status = AssetStatus.IN_STOCK
         elif ri.condition in (ReturnItemCondition.FULL_LOSS, ReturnItemCondition.PARTIAL_LOSS):
             asset.status = AssetStatus.LOST
+            has_loss_or_damage = True
         elif ri.condition == ReturnItemCondition.DAMAGED:
             asset.status = AssetStatus.DAMAGED
+            has_loss_or_damage = True
 
     _sync_return_order_status(db, task.return_order_id)
+
+    # 通知归还人审批结果
+    ro = db.query(ReturnOrder).filter(ReturnOrder.id == task.return_order_id).first()
+    if ro:
+        notification_service.create(
+            db,
+            recipient_id=ro.applicant_id,
+            title="归还审批已通过",
+            content=f"您的归还单 {ro.order_no} 有 {len(task.item_ids)} 件设备审批通过。",
+            notification_type="RETURN",
+            related_type="ReturnOrder",
+            related_id=ro.id,
+        )
+
+    # 丢失/损坏 → 通知超管
+    if has_loss_or_damage and ro:
+        notification_service.notify_all_super_admins(
+            db,
+            title="归还单存在丢失或损坏",
+            content=f"归还单 {ro.order_no} 中存在设备丢失或损坏，需要关注处理。",
+            notification_type="RETURN",
+            related_type="ReturnOrder",
+            related_id=ro.id,
+        )
 
     db.commit()
     db.refresh(task)
@@ -85,6 +112,20 @@ def reject_return_task(
     task.decided_at = datetime.now(timezone.utc)
 
     audit_service.log(db, user.id, "RETURN_TASK_REJECT", "ReturnApprovalTask", task.id, task.return_order_id, f"驳回归还审批，{len(task.item_ids)} 件")
+
+    # 通知归还人驳回
+    ro = db.query(ReturnOrder).filter(ReturnOrder.id == task.return_order_id).first()
+    if ro:
+        comment_text = f"审批意见：{comment}" if comment else ""
+        notification_service.create(
+            db,
+            recipient_id=ro.applicant_id,
+            title="归还审批已被驳回",
+            content=f"您的归还单 {ro.order_no} 已被驳回。{comment_text}",
+            notification_type="RETURN",
+            related_type="ReturnOrder",
+            related_id=ro.id,
+        )
 
     # 驳回 → 恢复设备到 BORROWED
     for item_id in task.item_ids:

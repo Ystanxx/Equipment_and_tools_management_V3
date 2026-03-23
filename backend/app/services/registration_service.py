@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from app.models.registration_request import RegistrationRequest
 from app.models.user import User
 from app.utils.enums import RegistrationStatus, UserStatus
-from app.services import audit_service
+from app.services import audit_service, notification_service
 
 
 def list_registration_requests(
@@ -49,6 +49,15 @@ def approve_registration(db: Session, request_id: uuid.UUID, reviewer_id: uuid.U
         description=f"通过注册申请 {reg.id}",
         snapshot={"user_id": str(reg.user_id)},
     )
+    notification_service.create(
+        db,
+        recipient_id=reg.user_id,
+        title="注册审核已通过",
+        content="您的注册申请已通过审核，现在可以正常使用系统。",
+        notification_type="REGISTRATION",
+        related_type="RegistrationRequest",
+        related_id=reg.id,
+    )
     db.commit()
     db.refresh(reg)
     return reg
@@ -76,6 +85,16 @@ def reject_registration(
         reg.id,
         description=f"驳回注册申请 {reg.id}",
         snapshot={"user_id": str(reg.user_id), "reason": reason},
+    )
+    reason_text = f"驳回原因：{reason}" if reason else "未提供驳回原因。"
+    notification_service.create(
+        db,
+        recipient_id=reg.user_id,
+        title="注册审核未通过",
+        content=f"很遗憾，您的注册申请未通过审核。{reason_text}",
+        notification_type="REGISTRATION",
+        related_type="RegistrationRequest",
+        related_id=reg.id,
     )
     db.commit()
     db.refresh(reg)

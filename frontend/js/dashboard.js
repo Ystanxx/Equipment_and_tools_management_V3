@@ -1,13 +1,27 @@
 // ===== PC Sidebar helper =====
+// Global unread notification count cache
+let _unreadNotificationCount = 0;
+
+async function refreshUnreadCount() {
+  try {
+    const res = await Api.getUnreadCount();
+    _unreadNotificationCount = (res.data && res.data.count) || 0;
+  } catch { _unreadNotificationCount = 0; }
+}
+
 function renderSidebar(active) {
   const user = Api.getUser();
   const isSuper = user && user.role === 'SUPER_ADMIN';
   const isAssetAdmin = user && user.role === 'ASSET_ADMIN';
+  const unreadBadge = _unreadNotificationCount > 0
+    ? `<span class="chip chip--danger" style="margin-left:6px;font-size:11px;min-width:18px;text-align:center;">${_unreadNotificationCount > 99 ? '99+' : _unreadNotificationCount}</span>`
+    : '';
 
   let links = [];
   if (isSuper) {
     links = [
       { name: 'dashboard', label: '运营概览', icon: 'home' },
+      { name: 'notifications', label: '通知中心', icon: 'bell', badge: unreadBadge },
       { type: 'divider', label: '系统管理' },
       { name: 'user-mgmt', label: '用户与注册审核', icon: 'users' },
       { name: 'system-configs', label: '系统配置', icon: 'tag' },
@@ -25,6 +39,7 @@ function renderSidebar(active) {
   } else if (isAssetAdmin) {
     links = [
       { name: 'dashboard', label: '工作台', icon: 'home' },
+      { name: 'notifications', label: '通知中心', icon: 'bell', badge: unreadBadge },
       { type: 'divider', label: '设备管理' },
       { name: 'asset-list', label: '我的设备/工具', icon: 'wrench' },
       { name: 'categories', label: '分类管理', icon: 'tag' },
@@ -49,14 +64,14 @@ function renderSidebar(active) {
       <nav class="sidebar__nav">
         ${links.map(l => {
           if (l.type === 'divider') return `<div class="sidebar__divider">${l.label}</div>`;
-          return `<a href="#${l.name}" class="sidebar__link ${active === l.name ? 'sidebar__link--active' : ''}">${Utils.svgIcon(l.icon)} ${l.label}</a>`;
+          return `<a href="#${l.name}" class="sidebar__link ${active === l.name ? 'sidebar__link--active' : ''}">${Utils.svgIcon(l.icon)} ${l.label}${l.badge || ''}</a>`;
         }).join('')}
       </nav>
       <div style="margin-top:auto;">
-        <div class="sidebar__user-info">
+        <a href="#profile" class="sidebar__user-info" style="text-decoration:none;color:inherit;display:block;cursor:pointer;">
           <span class="sidebar__user-name">${Utils.escapeHtml(user?.full_name || '')}</span>
           <span class="sidebar__user-role">${roleLabel}</span>
-        </div>
+        </a>
         <a href="javascript:void(0)" class="sidebar__link" onclick="handleLogout()">
           ${Utils.svgIcon('logout')} 退出登录
         </a>
@@ -72,6 +87,11 @@ function renderPcLayout(active, mainContent) {
     </div>`;
 }
 
+// Pre-fetch unread count before each page render for sidebar badge
+async function ensureUnreadCount() {
+  if (Api.getToken()) await refreshUnreadCount();
+}
+
 // ===== Dashboard Page =====
 Router.register('dashboard', async () => {
   const app = document.getElementById('app');
@@ -81,6 +101,7 @@ Router.register('dashboard', async () => {
     return Router.navigate('asset-list');
   }
 
+  await ensureUnreadCount();
   const isSuper = user.role === 'SUPER_ADMIN';
 
   // Shared stats
