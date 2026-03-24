@@ -113,10 +113,18 @@ def _order_to_out(db: Session, order) -> EquipmentOrderOut:
 
 
 def _ensure_can_view(user: User, order) -> None:
-    if user.role in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN):
+    if user.role == UserRole.SUPER_ADMIN:
         return
-    if order.applicant_id != user.id:
-        raise HTTPException(status_code=403, detail="无权查看该订单")
+    if order.applicant_id == user.id:
+        return
+    if user.role == UserRole.ASSET_ADMIN:
+        borrow_items = (order.borrow_order.items if order.borrow_order else []) or []
+        if any(item.admin_id_snapshot == user.id for item in borrow_items):
+            return
+        for return_order in order.return_orders or []:
+            if any(item.admin_id_snapshot == user.id for item in (return_order.items or [])):
+                return
+    raise HTTPException(status_code=403, detail="无权查看该订单")
 
 
 @router.get("", summary="统一订单列表")

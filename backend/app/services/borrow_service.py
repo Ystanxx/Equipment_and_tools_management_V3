@@ -156,8 +156,10 @@ def user_can_access_borrow_order(order: BorrowOrder, user: User) -> bool:
     """判断当前用户是否有权查看该借用单。"""
     if user.role == UserRole.SUPER_ADMIN:
         return True
-    if user.role == UserRole.USER:
-        return order.applicant_id == user.id
+    if order.applicant_id == user.id:
+        return True
+    if user.role != UserRole.ASSET_ADMIN:
+        return False
     return any(item.admin_id_snapshot == user.id for item in (order.items or []))
 
 
