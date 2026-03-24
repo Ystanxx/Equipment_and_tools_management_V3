@@ -456,14 +456,14 @@ Router.register('dashboard', async () => {
           value: pendingBorrowTasks,
           label: '待处理借出审批',
           className: 'stat-card--accent',
-          href: buildRouteHref('borrow-approvals', { status: 'PENDING' }),
+          href: buildRouteHref('borrow-approvals'),
           hint: '进入审批队列',
         })}
         ${renderDashboardStatCard({
           value: pendingReturnTasks,
           label: '待处理归还审批',
           className: 'stat-card--warning',
-          href: buildRouteHref('return-approvals', { status: 'PENDING' }),
+          href: buildRouteHref('return-approvals'),
           hint: '进入审批队列',
         })}
       </div>
@@ -534,14 +534,14 @@ Router.register('dashboard', async () => {
           value: pendingBorrowTasks,
           label: '待处理借出审批',
           className: 'stat-card--accent',
-          href: buildRouteHref('borrow-approvals', { status: 'PENDING' }),
+          href: buildRouteHref('borrow-approvals'),
           hint: '进入审批队列',
         })}
         ${renderDashboardStatCard({
           value: pendingReturnTasks,
           label: '待处理归还审批',
           className: 'stat-card--warning',
-          href: buildRouteHref('return-approvals', { status: 'PENDING' }),
+          href: buildRouteHref('return-approvals'),
           hint: '进入审批队列',
         })}
       </div>
