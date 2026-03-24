@@ -33,7 +33,7 @@ Router.register('login', async () => {
           <a href="#register" class="text-sm text-accent">还没有账号？注册新用户</a>
         </div>
       </div>
-          <p class="login-page__copyright text-xs text-muted">当前版本 v1.7.5</p>
+          <p class="login-page__copyright text-xs text-muted">当前版本 v1.7.6</p>
     </div>`;
 
   // Bind login
