@@ -199,11 +199,20 @@ def can_user_edit_asset(asset: Asset, current_user: User) -> bool:
     return str(asset.admin_id) == str(current_user.id)
 
 
+def _get_valid_asset_admin(db: Session, admin_id: uuid.UUID) -> User:
+    admin = db.query(User).filter(User.id == admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="指定管理员不存在")
+    if admin.role not in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="指定用户不是管理员角色")
+    return admin
+
+
 def create_asset(db: Session, data: AssetCreate, current_user: User) -> Asset:
     if current_user.role == UserRole.SUPER_ADMIN:
         if not data.admin_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="超管创建设备必须指定管理员")
-        admin_id = data.admin_id
+        admin_id = _get_valid_asset_admin(db, data.admin_id).id
     elif current_user.role == UserRole.ASSET_ADMIN:
         admin_id = current_user.id
     else:
@@ -267,6 +276,11 @@ def update_asset(db: Session, asset_id: uuid.UUID, data: AssetUpdate, current_us
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能手动设置借还流程状态")
         asset.status = data.status
 
+    if data.admin_id is not None:
+        if current_user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有超管可以修改设备管理员")
+        asset.admin_id = _get_valid_asset_admin(db, data.admin_id).id
+
     if data.asset_type_id is not None:
         asset_type = (
             db.query(AssetTypeOption)
@@ -296,11 +310,7 @@ def update_asset(db: Session, asset_id: uuid.UUID, data: AssetUpdate, current_us
 
 def update_asset_admin(db: Session, asset_id: uuid.UUID, new_admin_id: uuid.UUID, operator: User) -> Asset:
     asset = get_asset(db, asset_id)
-    admin = db.query(User).filter(User.id == new_admin_id).first()
-    if not admin:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="指定管理员不存在")
-    if admin.role not in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="指定用户不是管理员角色")
+    admin = _get_valid_asset_admin(db, new_admin_id)
     asset.admin_id = new_admin_id
     audit_service.log(
         db,

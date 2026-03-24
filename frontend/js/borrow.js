@@ -229,7 +229,7 @@ function openApprovalPanel({ title, subtitle = '', statusLabel = '', statusClass
 async function openBorrowApprovalPanel(task, params = {}) {
   const user = Api.getUser();
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
-  const statusFilter = params.status || 'PENDING';
+  const statusFilter = params.status || 'ALL';
   const page = parseInt(params.page, 10) || 1;
 
   const [orderRes, timelineRes, photoRes] = await Promise.all([
@@ -350,7 +350,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
       await Api.approveBorrowTask(currentTask.id, comment);
       panel.close();
       Utils.showToast('已通过');
-      Router.navigate('borrow-approvals', { status: statusFilter, page });
+      Router.navigate('borrow-approvals', buildBorrowApprovalParams(statusFilter, page));
     });
   });
 
@@ -359,7 +359,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
       await Api.rejectBorrowTask(currentTask.id, comment);
       panel.close();
       Utils.showToast('已驳回');
-      Router.navigate('borrow-approvals', { status: statusFilter, page });
+      Router.navigate('borrow-approvals', buildBorrowApprovalParams(statusFilter, page));
     }, true);
   });
 
@@ -368,7 +368,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
       await Api.deliverBorrowOrder(order.id);
       panel.close();
       Utils.showToast('已确认交付');
-      Router.navigate('borrow-approvals', { status: statusFilter, page });
+      Router.navigate('borrow-approvals', buildBorrowApprovalParams(statusFilter, page));
     });
   });
 }
@@ -971,7 +971,7 @@ Router.register('borrow-detail', async (params) => {
 Router.register('borrow-approvals', async (params) => {
   const app = document.getElementById('app');
   const page = parseInt(params.page) || 1;
-  const statusFilter = params.status || (params.history === '1' ? 'ALL' : 'PENDING');
+  const statusFilter = params.status || 'ALL';
   const isMobile = window.innerWidth <= 768;
 
   const borrowApprovalStatusMeta = {
@@ -1002,7 +1002,7 @@ Router.register('borrow-approvals', async (params) => {
 
   function buildBorrowApprovalParams(currentStatus, currentPage = 1) {
     const nextParams = {};
-    if (currentStatus && currentStatus !== 'PENDING') nextParams.status = currentStatus;
+    if (currentStatus && currentStatus !== 'ALL') nextParams.status = currentStatus;
     if (currentPage > 1) nextParams.page = currentPage;
     return nextParams;
   }
