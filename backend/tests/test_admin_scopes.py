@@ -288,3 +288,105 @@ def test_asset_admin_only_sees_and_stocks_in_own_returns(client, db, asset_type_
     stock_in_res = client.post(f"/api/v1/return-orders/{return_order['id']}/stock-in", headers=owner_headers)
     assert stock_in_res.status_code == 200
     assert stock_in_res.json()["data"]["status"] == "COMPLETED"
+
+
+def test_asset_admin_applicant_can_view_own_borrow_and_return_orders(client, db, asset_type_ids):
+    _, super_headers = _login_as_role(client, db, "selfapp_super", UserRole.SUPER_ADMIN)
+    owner_admin, _ = _login_as_role(client, db, "selfapp_owner", UserRole.ASSET_ADMIN)
+    applicant_admin, applicant_headers = _login_as_role(client, db, "selfapp_applicant", UserRole.ASSET_ADMIN)
+
+    category_id, location_id = _create_category_and_location(client, super_headers)
+    create_asset_res = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "他管我借设备",
+            "asset_type_id": asset_type_ids["固定资产"],
+            "category_id": category_id,
+            "location_id": location_id,
+            "admin_id": str(owner_admin.id),
+        },
+        headers=super_headers,
+    )
+    assert create_asset_res.status_code == 200
+    asset_id = create_asset_res.json()["data"]["id"]
+
+    order_res = client.post(
+        "/api/v1/borrow-orders",
+        headers=applicant_headers,
+        json={"asset_ids": [asset_id], "purpose": "申请人权限测试"},
+    )
+    assert order_res.status_code == 200
+    borrow_order = order_res.json()["data"]
+
+    borrow_detail_res = client.get(f"/api/v1/borrow-orders/{borrow_order['id']}", headers=applicant_headers)
+    assert borrow_detail_res.status_code == 200
+
+    equipment_order_id = borrow_order["equipment_order_id"]
+    equipment_detail_res = client.get(f"/api/v1/equipment-orders/{equipment_order_id}", headers=applicant_headers)
+    assert equipment_detail_res.status_code == 200
+
+    task_id = borrow_order["approval_tasks"][0]["id"]
+    approve_res = client.post(
+        f"/api/v1/borrow-approval-tasks/{task_id}/approve",
+        headers=super_headers,
+        json={"comment": "审批通过"},
+    )
+    assert approve_res.status_code == 200
+
+    deliver_res = client.post(f"/api/v1/borrow-orders/{borrow_order['id']}/deliver", headers=super_headers)
+    assert deliver_res.status_code == 200
+
+    return_res = client.post(
+        "/api/v1/return-orders",
+        headers=applicant_headers,
+        json={
+            "borrow_order_id": borrow_order["id"],
+            "items": [
+                {
+                    "borrow_order_item_id": borrow_order["items"][0]["id"],
+                    "asset_id": asset_id,
+                    "condition": "GOOD",
+                }
+            ],
+            "remark": "申请人归还权限测试",
+        },
+    )
+    assert return_res.status_code == 200
+    return_order = return_res.json()["data"]
+
+    return_detail_res = client.get(f"/api/v1/return-orders/{return_order['id']}", headers=applicant_headers)
+    assert return_detail_res.status_code == 200
+
+
+def test_asset_admin_cannot_view_unrelated_equipment_order(client, db, asset_type_ids):
+    _, super_headers = _login_as_role(client, db, "eqscope_super", UserRole.SUPER_ADMIN)
+    owner_admin, _ = _login_as_role(client, db, "eqscope_owner", UserRole.ASSET_ADMIN)
+    _, other_admin_headers = _login_as_role(client, db, "eqscope_other", UserRole.ASSET_ADMIN)
+    user, user_headers = _login_as_role(client, db, "eqscope_user", UserRole.USER)
+
+    category_id, location_id = _create_category_and_location(client, super_headers)
+    create_asset_res = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "统一订单权限设备",
+            "asset_type_id": asset_type_ids["固定资产"],
+            "category_id": category_id,
+            "location_id": location_id,
+            "admin_id": str(owner_admin.id),
+        },
+        headers=super_headers,
+    )
+    assert create_asset_res.status_code == 200
+    asset_id = create_asset_res.json()["data"]["id"]
+
+    order_res = client.post(
+        "/api/v1/borrow-orders",
+        headers=user_headers,
+        json={"asset_ids": [asset_id], "purpose": "统一订单权限测试"},
+    )
+    assert order_res.status_code == 200
+    equipment_order_id = order_res.json()["data"]["equipment_order_id"]
+
+    denied_res = client.get(f"/api/v1/equipment-orders/{equipment_order_id}", headers=other_admin_headers)
+    assert denied_res.status_code == 403
+    assert denied_res.json()["detail"] == "无权查看该订单"
