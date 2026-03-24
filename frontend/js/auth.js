@@ -8,7 +8,6 @@ Router.register('login', async () => {
         <div class="login-page__header">
           <div class="login-page__logo">LAB OPS</div>
           <h1 class="login-page__title">器材管理系统</h1>
-          <p class="login-page__subtitle">实验室设备借还与台账管理平台</p>
         </div>
         <div class="auth-form">
           <div class="form-group">
@@ -34,7 +33,7 @@ Router.register('login', async () => {
           <a href="#register" class="text-sm text-accent">还没有账号？注册新用户</a>
         </div>
       </div>
-      <p class="login-page__copyright text-xs text-muted">Lab Equipment Management System</p>
+      <p class="login-page__copyright text-xs text-muted">当前版本 v1.7.4</p>
     </div>`;
 
   // Bind login

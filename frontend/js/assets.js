@@ -8,19 +8,32 @@ Router.register('asset-list', async (params) => {
   const keyword = params.keyword || '';
   const statusFilter = params.status || '';
 
-  let assets = [], total = 0;
+  let assets = [], total = 0, summaryTotal = 0, stockCount = 0;
   try {
     const qp = { page, page_size: pageSize };
     if (keyword) qp.keyword = keyword;
     if (statusFilter) qp.status = statusFilter;
-    const res = await Api.listAssets(qp);
+    const summaryQp = { page: 1, page_size: 1 };
+    if (keyword) summaryQp.keyword = keyword;
+    const stockQp = { page: 1, page_size: 1, status: 'IN_STOCK' };
+    if (keyword) stockQp.keyword = keyword;
+    const [res, summaryRes, stockRes] = await Promise.all([
+      Api.listAssets(qp),
+      Api.listAssets(summaryQp),
+      Api.listAssets(stockQp),
+    ]);
     assets = res.data.items;
     total = res.data.total;
+    summaryTotal = summaryRes.data.total;
+    stockCount = stockRes.data.total;
   } catch (e) {
     console.error(e);
   }
 
-  renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user);
+  renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user, {
+    summaryTotal,
+    stockCount,
+  });
 });
 
 Router.register('managed-assets', async (params) => {
@@ -55,10 +68,11 @@ Router.register('managed-assets', async (params) => {
   }
 });
 
-function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user) {
+function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user, summary = {}) {
   const isMobile = window.innerWidth <= 768;
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
-  const stockCount = assets.filter(a => a.status === 'IN_STOCK').length;
+  const stockCount = Number.isFinite(summary.stockCount) ? summary.stockCount : assets.filter(a => a.status === 'IN_STOCK').length;
+  const summaryTotal = Number.isFinite(summary.summaryTotal) ? summary.summaryTotal : total;
   const maxItems = Api.getSystemConfig('borrow_order_max_items', 20);
   const totalPages = Math.ceil(total / pageSize);
   const getDisplayStatus = (asset) => asset.display_status || asset.status;
@@ -81,10 +95,10 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
       <div class="borrow-browser__header">
         <div>
           <h1 style="font-size:1.5rem;">器材借用</h1>
-          <p class="text-xs text-muted">共 ${total} 件器材 · ${stockCount} 件在库可借</p>
+          <p class="text-xs text-muted">共 ${summaryTotal} 件器材 · ${stockCount} 件在库可借</p>
         </div>
         <div class="borrow-browser__summary">
-          <span class="tag">总计 ${total} 件</span>
+          <span class="tag">总计 ${summaryTotal} 件</span>
           <span class="chip chip--stock">在库 ${stockCount} 件</span>
         </div>
       </div>
