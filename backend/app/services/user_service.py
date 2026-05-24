@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
+from app.core.security import hash_password
 from app.models.user import User
 from app.utils.enums import UserRole, UserStatus
 from app.services import audit_service
@@ -168,6 +169,29 @@ def update_user_profile(
             "full_name": user.full_name,
             "email": user.email,
         },
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def reset_user_password(db: Session, user_id: uuid.UUID, new_password: str, operator: User) -> User:
+    """超级管理员重置用户密码"""
+    if user_id == operator.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能重置自己的密码，请使用修改密码功能")
+    user = get_user(db, user_id)
+    if user.role == UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能重置其他超级管理员的密码")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码长度不能少于6位")
+    user.hashed_password = hash_password(new_password)
+    audit_service.log(
+        db,
+        operator.id,
+        "USER_PASSWORD_RESET",
+        "User",
+        user.id,
+        description=f"超级管理员 {operator.username} 重置了用户 {user.username} 的密码",
     )
     db.commit()
     db.refresh(user)

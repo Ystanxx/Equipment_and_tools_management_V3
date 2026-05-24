@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_super_admin
 from app.models.user import User
-from app.schemas.user import UserOut, RoleUpdateRequest, StatusUpdateRequest, UserProfileUpdateRequest
+from app.schemas.user import UserOut, RoleUpdateRequest, StatusUpdateRequest, UserProfileUpdateRequest, ResetPasswordRequest
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import user_service
 from app.utils.enums import UserRole, UserStatus
@@ -81,3 +81,14 @@ def update_profile(
         current_user,
     )
     return ResponseSchema(data=UserOut.model_validate(user), message="资料已更新")
+
+
+@router.put("/{user_id}/reset-password", response_model=ResponseSchema[UserOut])
+def reset_password(
+    user_id: uuid.UUID,
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    user = user_service.reset_user_password(db, user_id, body.new_password, current_user)
+    return ResponseSchema(data=UserOut.model_validate(user), message="密码已重置")

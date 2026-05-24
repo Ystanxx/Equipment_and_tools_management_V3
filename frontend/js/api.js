@@ -157,6 +157,7 @@ const Api = {
   updateUserProfile(id, data) { return this.put(`/users/${id}/profile`, data); },
   updateRole(id, role) { return this.put(`/users/${id}/role`, { role }); },
   updateUserStatus(id, status) { return this.put(`/users/${id}/status`, { status }); },
+  resetUserPassword(id, newPassword) { return this.put(`/users/${id}/reset-password`, { new_password: newPassword }); },
 
   // Asset Types
   listAssetTypes(params) { return this.get('/asset-types', params); },

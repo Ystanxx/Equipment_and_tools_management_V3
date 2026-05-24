@@ -95,6 +95,9 @@ Router.register('user-mgmt', async () => {
                           <option value="ASSET_ADMIN" ${u.role === 'ASSET_ADMIN' ? 'selected' : ''}>设备管理员</option>
                           <option value="SUPER_ADMIN" ${u.role === 'SUPER_ADMIN' ? 'selected' : ''}>超级管理员</option>
                         </select>
+                        ${u.id !== currentUser?.id && u.role !== 'SUPER_ADMIN' && u.status === 'ACTIVE'
+                          ? `<button class="btn btn--outline btn--sm user-table__action-btn user-reset-pwd-btn" data-id="${u.id}">重置密码</button>`
+                          : ''}
                         ${u.id !== currentUser?.id && u.status === 'ACTIVE'
                           ? `<button class="btn btn--outline btn--sm user-table__action-btn user-disable-btn" data-id="${u.id}">停用</button>`
                           : u.id !== currentUser?.id && u.status === 'DISABLED'
@@ -183,6 +186,17 @@ Router.register('user-mgmt', async () => {
     });
   });
 
+  // Reset password
+  document.querySelectorAll('.user-reset-pwd-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetUser = users.find((item) => String(item.id) === String(btn.dataset.id));
+      if (!targetUser) return;
+      _showResetPasswordModal(targetUser, async () => {
+        Router.navigate('user-mgmt');
+      });
+    });
+  });
+
   document.querySelectorAll('.user-profile-edit-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const targetUser = users.find((item) => String(item.id) === String(btn.dataset.id));
@@ -196,3 +210,57 @@ Router.register('user-mgmt', async () => {
     });
   });
 });
+
+function _showResetPasswordModal(targetUser, onSuccess) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal__header">
+        <h3 class="modal__title">重置密码</h3>
+        <button class="modal__close" id="modal-close">&times;</button>
+      </div>
+      <p class="text-sm text-muted" style="margin-bottom:12px;">
+        正在重置用户 <strong>${Utils.escapeHtml(targetUser.full_name)}</strong>（${Utils.escapeHtml(targetUser.username)}）的密码
+      </p>
+      <div class="form-group">
+        <label class="form-label">新密码（至少6位）</label>
+        <input type="password" id="modal-new-password" class="form-input" placeholder="请输入新密码" minlength="6" autocomplete="new-password">
+      </div>
+      <div id="modal-error" class="form-error hidden"></div>
+      <div class="modal__footer">
+        <button class="btn btn--outline btn--sm" id="modal-cancel">取消</button>
+        <button class="btn btn--primary btn--sm" id="modal-confirm">确认重置</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const passwordInput = overlay.querySelector('#modal-new-password');
+  const errorEl = overlay.querySelector('#modal-error');
+
+  const closeModal = () => overlay.remove();
+
+  overlay.querySelector('#modal-close').addEventListener('click', closeModal);
+  overlay.querySelector('#modal-cancel').addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+
+  overlay.querySelector('#modal-confirm').addEventListener('click', async () => {
+    const newPassword = passwordInput.value.trim();
+    if (newPassword.length < 6) {
+      errorEl.textContent = '密码长度不能少于6位';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    try {
+      await Api.resetUserPassword(targetUser.id, newPassword);
+      Utils.showToast('密码已重置');
+      closeModal();
+      if (onSuccess) onSuccess();
+    } catch (e) {
+      errorEl.textContent = e.message;
+      errorEl.classList.remove('hidden');
+    }
+  });
+
+  setTimeout(() => passwordInput.focus(), 100);
+}

@@ -39,3 +39,7 @@ class UserProfileUpdateRequest(BaseModel):
     username: str
     full_name: str
     email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
