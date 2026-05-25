@@ -11,6 +11,7 @@ from app.api.borrow_approvals import router as borrow_approvals_router
 from app.api.return_orders import router as return_orders_router
 from app.api.return_approvals import router as return_approvals_router
 from app.api.audit_logs import router as audit_logs_router
+from app.api.attachments import router as attachments_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -25,3 +26,4 @@ api_router.include_router(borrow_approvals_router)
 api_router.include_router(return_orders_router)
 api_router.include_router(return_approvals_router)
 api_router.include_router(audit_logs_router)
+api_router.include_router(attachments_router)

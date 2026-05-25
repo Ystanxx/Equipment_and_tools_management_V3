@@ -119,6 +119,24 @@ const Api = {
   listReturnOrders(params) { return this.get('/return-orders', params); },
   getReturnOrder(id) { return this.get(`/return-orders/${id}`); },
 
+  // Attachments
+  async uploadAttachment(file, photoType, relatedType, relatedId) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('photo_type', photoType);
+    form.append('related_type', relatedType);
+    form.append('related_id', relatedId);
+    const headers = {};
+    const token = this.getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const res = await fetch(API_BASE + '/attachments', { method: 'POST', headers, body: form });
+    if (res.status === 401) { this.clearToken(); this.clearUser(); Router.navigate('login'); throw new Error('登录已过期'); }
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || '上传失败');
+    return json;
+  },
+  listAttachments(params) { return this.get('/attachments', params); },
+
   // Audit Logs
   listAuditLogs(params) { return this.get('/audit-logs', params); },
 

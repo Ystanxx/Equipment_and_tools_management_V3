@@ -50,6 +50,11 @@ Router.register('borrow-cart', async () => {
               <label class="form-label">备注（选填）</label>
               <textarea id="cart-remark" class="form-textarea" placeholder="其他信息"></textarea>
             </div>
+            <div class="form-group">
+              <label class="form-label">附件照片（选填，可多选）</label>
+              <input type="file" id="cart-photos" accept="image/*" multiple style="font-size:0.8125rem;">
+              <div id="cart-photo-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
+            </div>
             <div id="cart-error" class="form-error hidden"></div>
             <button id="cart-submit" class="btn btn--primary btn--full">提交借用单 (${cart.length} 件)</button>
           </div>
@@ -59,9 +64,26 @@ Router.register('borrow-cart', async () => {
       <nav class="bottom-nav">
         <a href="#asset-list" class="bottom-nav__item">${Utils.svgIcon('box')}<span>设备</span></a>
         <a href="#borrow-cart" class="bottom-nav__item bottom-nav__item--active">${Utils.svgIcon('wrench')}<span>清单(${cart.length})</span></a>
-        <a href="#my-orders" class="bottom-nav__item">${Utils.svgIcon('tag')}<span>我的单</span></a>
+        <a href="#my-orders" class="bottom-nav__item">${Utils.svgIcon('tag')}<span>借用单</span></a>
+        <a href="#my-returns" class="bottom-nav__item">${Utils.svgIcon('undo')}<span>归还单</span></a>
       </nav>
     </div>`;
+
+  // Photo preview
+  const cartPhotos = document.getElementById('cart-photos');
+  if (cartPhotos) {
+    cartPhotos.addEventListener('change', () => {
+      const preview = document.getElementById('cart-photo-preview');
+      if (!preview) return;
+      preview.innerHTML = '';
+      for (const f of cartPhotos.files) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.style.cssText = 'width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);';
+        preview.appendChild(img);
+      }
+    });
+  }
 
   // Remove from cart
   document.querySelectorAll('.cart-remove-btn').forEach(btn => {
@@ -91,6 +113,13 @@ Router.register('borrow-cart', async () => {
           expected_return_date: returnDate,
           remark,
         });
+        // Upload photos
+        const photoInput = document.getElementById('cart-photos');
+        if (photoInput && photoInput.files.length > 0) {
+          for (const f of photoInput.files) {
+            try { await Api.uploadAttachment(f, 'BORROW_ORDER', 'BorrowOrder', res.data.id); } catch (e) { console.warn('Photo upload failed:', e); }
+          }
+        }
         Api.clearCart();
         Utils.showToast('借用单已提交，等待审批');
         Router.navigate('borrow-detail', { id: res.data.id });
@@ -185,6 +214,8 @@ Router.register('my-orders', async (params) => {
             <span class="chip ${statusFilter === 'PENDING_APPROVAL' ? 'chip--active' : 'chip--outline'}" data-status="PENDING_APPROVAL">待审核</span>
             <span class="chip ${statusFilter === 'READY_FOR_PICKUP' ? 'chip--active' : 'chip--outline'}" data-status="READY_FOR_PICKUP">待领取</span>
             <span class="chip ${statusFilter === 'DELIVERED' ? 'chip--active' : 'chip--outline'}" data-status="DELIVERED">已交付</span>
+            <span class="chip ${statusFilter === 'COMPLETED' ? 'chip--active' : 'chip--outline'}" data-status="COMPLETED">已完成</span>
+            <span class="chip ${statusFilter === 'CANCELLED' ? 'chip--active' : 'chip--outline'}" data-status="CANCELLED">已取消</span>
           </div>
           <div class="stack--md">
             ${orders.length === 0 ? '<div class="empty-state"><p>暂无借用单</p></div>' :
@@ -207,7 +238,8 @@ Router.register('my-orders', async (params) => {
         <nav class="bottom-nav">
           <a href="#asset-list" class="bottom-nav__item">${Utils.svgIcon('box')}<span>设备</span></a>
           <a href="#borrow-cart" class="bottom-nav__item">${Utils.svgIcon('wrench')}<span>清单</span></a>
-          <a href="#my-orders" class="bottom-nav__item bottom-nav__item--active">${Utils.svgIcon('tag')}<span>我的单</span></a>
+          <a href="#my-orders" class="bottom-nav__item bottom-nav__item--active">${Utils.svgIcon('tag')}<span>借用单</span></a>
+          <a href="#my-returns" class="bottom-nav__item">${Utils.svgIcon('undo')}<span>归还单</span></a>
         </nav>
       </div>`;
 
@@ -258,6 +290,13 @@ Router.register('borrow-detail', async (params) => {
   const canCancel = order.applicant_id === user.id && order.status === 'PENDING_APPROVAL';
   const canReturn = order.applicant_id === user.id && (order.status === 'DELIVERED' || order.status === 'PARTIALLY_RETURNED');
 
+  // Load borrow order photos
+  let orderPhotos = [];
+  try {
+    const pr = await Api.listAttachments({ related_type: 'BorrowOrder', related_id: order.id, photo_type: 'BORROW_ORDER' });
+    orderPhotos = pr.data || [];
+  } catch (e) { /* ignore */ }
+
   const detailHtml = `
     <div class="page-header">
       <div class="page-header__info">
@@ -295,6 +334,13 @@ Router.register('borrow-detail', async (params) => {
         </div>
         ${order.purpose ? `<div class="card stack--sm"><h3>借用说明</h3><p class="text-sm">${Utils.escapeHtml(order.purpose)}</p></div>` : ''}
         ${order.remark ? `<div class="card stack--sm"><h3>备注</h3><p class="text-sm">${Utils.escapeHtml(order.remark)}</p></div>` : ''}
+        ${orderPhotos.length > 0 ? `
+        <div class="card stack--sm">
+          <h3>附件照片</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${orderPhotos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.file_path)}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--line);" onclick="window.open('/uploads/${Utils.escapeHtml(p.file_path)}','_blank')">`).join('')}
+          </div>
+        </div>` : ''}
       </div>
 
       <div class="content-side">
@@ -303,14 +349,21 @@ Router.register('borrow-detail', async (params) => {
           <div class="stack--sm">
             ${(order.approval_tasks || []).map(t => {
               const ts = taskStatusMap[t.status] || { label: t.status, class: '' };
+              const canApproveTask = isAdmin && t.status === 'PENDING' && (t.approver_id === user.id || user.role === 'SUPER_ADMIN');
               return `
-                <div class="user-row">
+                <div class="user-row" style="flex-wrap:wrap;gap:8px;">
                   <div class="user-row__info">
                     <span class="user-row__name">${Utils.escapeHtml(t.approver_name || '-')}</span>
                     <span class="user-row__meta">${t.item_ids.length} 件设备 · ${t.decided_at ? Utils.formatDateTime(t.decided_at) : '待处理'}</span>
                     ${t.comment ? `<span class="user-row__meta text-muted">${Utils.escapeHtml(t.comment)}</span>` : ''}
                   </div>
-                  <span class="chip ${ts.class}">${ts.label}</span>
+                  <div style="display:flex;gap:6px;align-items:center;">
+                    <span class="chip ${ts.class}">${ts.label}</span>
+                    ${canApproveTask ? `
+                      <button class="btn btn--primary btn--sm inline-approve-btn" data-id="${t.id}" style="padding:5px 10px;font-size:0.75rem;">通过</button>
+                      <button class="btn btn--danger btn--sm inline-reject-btn" data-id="${t.id}" style="padding:5px 10px;font-size:0.75rem;">驳回</button>
+                    ` : ''}
+                  </div>
                 </div>`;
             }).join('')}
           </div>
@@ -328,19 +381,18 @@ Router.register('borrow-detail', async (params) => {
   if (isAdmin) {
     app.innerHTML = renderPcLayout('my-orders', detailHtml);
   } else {
-    app.innerHTML = `<div class="page--mobile"><div class="page">${detailHtml}</div></div>`;
+    app.innerHTML = `<div class="page--mobile"><div class="mobile-back-bar"><a href="#my-orders">${Utils.svgIcon('arrowLeft')} 返回借用单列表</a></div><div class="page" style="padding-top:8px;">${detailHtml}</div></div>`;
   }
 
-  // Deliver button
+  // Deliver button with modal
   const deliverBtn = document.getElementById('deliver-btn');
   if (deliverBtn) {
-    deliverBtn.addEventListener('click', async () => {
-      if (!confirm('确认所有设备已线下交付？')) return;
-      try {
+    deliverBtn.addEventListener('click', () => {
+      _showApprovalModal('确认交付', `确认 ${order.item_count} 件设备已线下交付给 ${order.applicant_name || '申请人'}？`, async (comment) => {
         await Api.deliverBorrowOrder(order.id);
         Utils.showToast('已确认交付');
         Router.navigate('borrow-detail', { id: order.id });
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   }
 
@@ -352,18 +404,37 @@ Router.register('borrow-detail', async (params) => {
     });
   }
 
-  // Cancel button
+  // Cancel button with modal
   const cancelBtn = document.getElementById('cancel-btn');
   if (cancelBtn) {
-    cancelBtn.addEventListener('click', async () => {
-      if (!confirm('确认取消该借用单？')) return;
-      try {
+    cancelBtn.addEventListener('click', () => {
+      _showApprovalModal('取消借用单', '确认取消该借用单？此操作不可撤销。', async () => {
         await Api.cancelBorrowOrder(order.id);
         Utils.showToast('借用单已取消');
         Router.navigate('my-orders');
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   }
+
+  // Inline approve/reject buttons on borrow detail
+  document.querySelectorAll('.inline-approve-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('通过借出审批', '确认通过该借出申请？', async (comment) => {
+        await Api.approveBorrowTask(btn.dataset.id, comment);
+        Utils.showToast('已通过');
+        Router.navigate('borrow-detail', { id: order.id });
+      });
+    });
+  });
+  document.querySelectorAll('.inline-reject-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('驳回借出审批', '请填写驳回原因：', async (comment) => {
+        await Api.rejectBorrowTask(btn.dataset.id, comment);
+        Utils.showToast('已驳回');
+        Router.navigate('borrow-detail', { id: order.id });
+      }, true);
+    });
+  });
 });
 
 // ===== Admin: Approval Tasks Page =====
@@ -377,9 +448,7 @@ Router.register('borrow-approvals', async (params) => {
     const res = await Api.listBorrowApprovalTasks({ page, page_size: 20, status: statusFilter });
     tasks = res.data.items;
     total = res.data.total;
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 
   const taskStatusMap = {
     PENDING: { label: '待审批', class: 'chip--pending' },
@@ -388,21 +457,42 @@ Router.register('borrow-approvals', async (params) => {
     SKIPPED: { label: '已跳过', class: 'chip--disabled' },
   };
 
-  const tableRows = tasks.map(t => {
+  const taskCards = tasks.map(t => {
     const ts = taskStatusMap[t.status] || { label: t.status, class: '' };
-    return `<tr>
-      <td><a href="#borrow-detail?id=${t.order_id}" style="font-weight:500;">查看借用单</a></td>
-      <td>${Utils.escapeHtml(t.approver_name || '-')}</td>
-      <td>${t.item_ids.length} 件</td>
-      <td><span class="chip ${ts.class}">${ts.label}</span></td>
-      <td>${Utils.formatDateTime(t.created_at)}</td>
-      <td>
-        ${t.status === 'PENDING' ? `
-          <button class="btn btn--primary btn--sm task-approve-btn" data-id="${t.id}">通过</button>
-          <button class="btn btn--outline btn--sm task-reject-btn" data-id="${t.id}">驳回</button>
-        ` : (t.comment ? `<span class="text-xs text-muted">${Utils.escapeHtml(t.comment)}</span>` : '-')}
-      </td>
-    </tr>`;
+    const itemRows = (t.item_details || []).map(d =>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--panel-alt);">
+        <div>
+          <span class="text-sm" style="font-weight:500;">${Utils.escapeHtml(d.asset_code_snapshot)}</span>
+          <span class="text-sm text-muted" style="margin-left:8px;">${Utils.escapeHtml(d.asset_name_snapshot)}</span>
+        </div>
+        <span class="text-xs text-muted">${Utils.escapeHtml(d.location_name_snapshot || '')}</span>
+      </div>`
+    ).join('');
+
+    return `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div>
+            <a href="#borrow-detail?id=${t.order_id}" style="font-weight:600;font-size:0.9375rem;">${Utils.escapeHtml(t.order_no || '查看借用单')}</a>
+            <span class="text-sm text-muted" style="margin-left:12px;">申请人：${Utils.escapeHtml(t.applicant_name || '-')}</span>
+          </div>
+          <span class="chip ${ts.class}">${ts.label}</span>
+        </div>
+        <div style="background:var(--panel-alt);border-radius:var(--radius-input);padding:10px 14px;margin-bottom:12px;">
+          <div class="text-xs text-muted" style="margin-bottom:6px;">设备清单 (${t.item_details?.length || t.item_ids.length} 件)</div>
+          ${itemRows || '<div class="text-sm text-muted">加载中...</div>'}
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="text-xs text-muted">${Utils.formatDateTime(t.created_at)}</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            ${t.comment ? `<span class="text-xs text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${Utils.escapeHtml(t.comment)}</span>` : ''}
+            ${t.status === 'PENDING' ? `
+              <button class="btn btn--primary btn--sm task-approve-btn" data-id="${t.id}">通过</button>
+              <button class="btn btn--danger btn--sm task-reject-btn" data-id="${t.id}">驳回</button>
+            ` : ''}
+          </div>
+        </div>
+      </div>`;
   }).join('');
 
   const mainContent = `
@@ -412,7 +502,7 @@ Router.register('borrow-approvals', async (params) => {
         <p class="page-header__desc">共 ${total} 条任务</p>
       </div>
     </div>
-    <div class="flex gap-md" style="margin-bottom:4px;">
+    <div class="flex gap-md" style="margin-bottom:12px;">
       <select id="task-status-filter" class="form-select" style="width:140px;">
         <option value="PENDING" ${statusFilter === 'PENDING' ? 'selected' : ''}>待审批</option>
         <option value="APPROVED" ${statusFilter === 'APPROVED' ? 'selected' : ''}>已通过</option>
@@ -420,14 +510,7 @@ Router.register('borrow-approvals', async (params) => {
         <option value="" ${!statusFilter ? 'selected' : ''}>全部</option>
       </select>
     </div>
-    <div class="card" style="padding:0;overflow:hidden;">
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead><tr><th>借用单</th><th>审批人</th><th>设备数</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
-          <tbody>${tableRows || '<tr><td colspan="6"><div class="empty-state">暂无任务</div></td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>`;
+    ${taskCards || '<div class="empty-state" style="padding:40px;">暂无审批任务</div>'}`;
 
   app.innerHTML = renderPcLayout('borrow-approvals', mainContent);
 
@@ -435,27 +518,74 @@ Router.register('borrow-approvals', async (params) => {
     Router.navigate('borrow-approvals', { status: e.target.value });
   });
 
-  // Approve
+  // Approve with modal
   document.querySelectorAll('.task-approve-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const comment = prompt('审批意见（可选）：') || null;
-      try {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('通过借出审批', '确认通过该借出申请？', async (comment) => {
         await Api.approveBorrowTask(btn.dataset.id, comment);
         Utils.showToast('已通过');
         Router.navigate('borrow-approvals', { status: statusFilter });
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   });
 
-  // Reject
+  // Reject with modal
   document.querySelectorAll('.task-reject-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const comment = prompt('驳回原因：');
-      try {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('驳回借出审批', '请填写驳回原因：', async (comment) => {
         await Api.rejectBorrowTask(btn.dataset.id, comment);
         Utils.showToast('已驳回');
         Router.navigate('borrow-approvals', { status: statusFilter });
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      }, true);
     });
   });
 });
+
+// ===== Shared Approval Modal =====
+function _showApprovalModal(title, desc, onConfirm, requireComment = false) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal__header">
+        <h3 class="modal__title">${Utils.escapeHtml(title)}</h3>
+        <button class="modal__close" id="modal-close">&times;</button>
+      </div>
+      <p class="text-sm text-muted" style="margin-bottom:12px;">${Utils.escapeHtml(desc)}</p>
+      <div class="form-group">
+        <label class="form-label">审批意见${requireComment ? '' : '（选填）'}</label>
+        <textarea id="modal-comment" class="form-textarea" placeholder="填写审批意见..." style="min-height:60px;"></textarea>
+      </div>
+      <div id="modal-error" class="form-error hidden"></div>
+      <div class="modal__footer">
+        <button class="btn btn--outline btn--sm" id="modal-cancel">取消</button>
+        <button class="btn btn--primary btn--sm" id="modal-confirm">确认</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#modal-close').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#modal-cancel').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('#modal-confirm').addEventListener('click', async () => {
+    const comment = overlay.querySelector('#modal-comment').value.trim() || null;
+    if (requireComment && !comment) {
+      const err = overlay.querySelector('#modal-error');
+      err.textContent = '请填写原因';
+      err.classList.remove('hidden');
+      return;
+    }
+    const btn = overlay.querySelector('#modal-confirm');
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+    try {
+      await onConfirm(comment);
+      overlay.remove();
+    } catch (e) {
+      Utils.showToast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = '确认';
+    }
+  });
+}

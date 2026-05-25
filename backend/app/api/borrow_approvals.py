@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_role
 from app.models.user import User
-from app.schemas.borrow_order import BorrowApprovalTaskOut, ApprovalActionRequest
+from app.models.borrow_order import BorrowOrder
+from app.models.borrow_order_item import BorrowOrderItem
+from app.schemas.borrow_order import BorrowApprovalTaskOut, ApprovalActionRequest, ApprovalItemDetail
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import borrow_approval_service
 from app.utils.enums import UserRole
@@ -13,13 +15,33 @@ from app.utils.enums import UserRole
 router = APIRouter(prefix="/borrow-approval-tasks", tags=["借出审批"])
 
 
-def _task_to_out(t) -> BorrowApprovalTaskOut:
+def _task_to_out(t, db: Session = None) -> BorrowApprovalTaskOut:
+    item_details = []
+    order_no = None
+    applicant_name = None
+    if db and t.item_ids:
+        items = db.query(BorrowOrderItem).filter(BorrowOrderItem.id.in_(t.item_ids)).all()
+        item_details = [
+            ApprovalItemDetail(
+                id=i.id, asset_id=i.asset_id,
+                asset_code_snapshot=i.asset_code_snapshot,
+                asset_name_snapshot=i.asset_name_snapshot,
+                location_name_snapshot=i.location_name_snapshot,
+            ) for i in items
+        ]
+        order = db.query(BorrowOrder).filter(BorrowOrder.id == t.order_id).first()
+        if order:
+            order_no = order.order_no
+            applicant_name = order.applicant.full_name if order.applicant else None
     return BorrowApprovalTaskOut(
         id=t.id,
         order_id=t.order_id,
+        order_no=order_no,
+        applicant_name=applicant_name,
         approver_id=t.approver_id,
         approver_name=t.approver.full_name if t.approver else None,
         item_ids=t.item_ids or [],
+        item_details=item_details,
         status=t.status.value if hasattr(t.status, "value") else t.status,
         comment=t.comment,
         decided_at=t.decided_at,
@@ -48,7 +70,7 @@ def list_tasks(
     )
     return ResponseSchema(
         data=PaginatedData(
-            items=[_task_to_out(t) for t in items],
+            items=[_task_to_out(t, db) for t in items],
             total=total,
             page=page,
             page_size=page_size,
@@ -64,7 +86,7 @@ def approve(
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     task = borrow_approval_service.approve_task(db, task_id, user, body.comment)
-    return ResponseSchema(data=_task_to_out(task))
+    return ResponseSchema(data=_task_to_out(task, db))
 
 
 @router.post("/{task_id}/reject", summary="驳回审批")
@@ -75,4 +97,4 @@ def reject(
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     task = borrow_approval_service.reject_task(db, task_id, user, body.comment)
-    return ResponseSchema(data=_task_to_out(task))
+    return ResponseSchema(data=_task_to_out(task, db))
