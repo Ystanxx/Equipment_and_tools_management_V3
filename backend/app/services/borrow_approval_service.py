@@ -14,7 +14,7 @@ from app.utils.enums import (
     BorrowOrderStatus,
     UserRole,
 )
-from app.services import audit_service
+from app.services import audit_service, notification_service
 
 
 def list_pending_tasks(
@@ -47,6 +47,31 @@ def approve_task(db: Session, task_id: uuid.UUID, user: User, comment: str | Non
     _sync_order_status(db, task.order_id)
 
     audit_service.log(db, user.id, "BORROW_TASK_APPROVE", "BorrowApprovalTask", task.id, task.order_id, f"通过借出审批，{len(task.item_ids)} 件")
+
+    # 通知借用人审批进度
+    order = db.query(BorrowOrder).filter(BorrowOrder.id == task.order_id).first()
+    if order:
+        if order.status == BorrowOrderStatus.READY_FOR_PICKUP:
+            notification_service.create(
+                db,
+                recipient_id=order.applicant_id,
+                title="借用单已全部通过",
+                content=f"您的借用单 {order.order_no} 已全部审批通过，请前往领取设备。",
+                notification_type="BORROW",
+                related_type="BorrowOrder",
+                related_id=order.id,
+            )
+        else:
+            notification_service.create(
+                db,
+                recipient_id=order.applicant_id,
+                title="借用审批部分通过",
+                content=f"您的借用单 {order.order_no} 有 {len(task.item_ids)} 件设备审批通过。",
+                notification_type="BORROW",
+                related_type="BorrowOrder",
+                related_id=order.id,
+            )
+
     db.commit()
     db.refresh(task)
     return task
@@ -76,6 +101,21 @@ def reject_task(db: Session, task_id: uuid.UUID, user: User, comment: str | None
     _sync_order_status(db, task.order_id)
 
     audit_service.log(db, user.id, "BORROW_TASK_REJECT", "BorrowApprovalTask", task.id, task.order_id, f"驳回借出审批，{len(task.item_ids)} 件")
+
+    # 通知借用人驳回
+    order = db.query(BorrowOrder).filter(BorrowOrder.id == task.order_id).first()
+    if order:
+        comment_text = f"审批意见：{comment}" if comment else ""
+        notification_service.create(
+            db,
+            recipient_id=order.applicant_id,
+            title="借用单已被驳回",
+            content=f"您的借用单 {order.order_no} 已被驳回。{comment_text}",
+            notification_type="BORROW",
+            related_type="BorrowOrder",
+            related_id=order.id,
+        )
+
     db.commit()
     db.refresh(task)
     return task

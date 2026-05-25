@@ -190,6 +190,43 @@
 .modal__close { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1.25rem; }
 .modal__footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 
+/* ===== Timeline ===== */
+.timeline { position: relative; padding-left: 20px; }
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--line);
+}
+.timeline__item {
+  position: relative;
+  padding-bottom: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.timeline__item:last-child { padding-bottom: 0; }
+.timeline__dot {
+  position: absolute;
+  left: -17px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+  box-shadow: 0 0 0 2px var(--line);
+  flex-shrink: 0;
+}
+.timeline__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 /* ===== Empty state ===== */
 .empty-state { text-align: center; padding: 48px 24px; color: var(--muted); }
 .empty-state svg { margin: 0 auto 16px; }
