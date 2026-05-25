@@ -695,6 +695,16 @@
   flex-direction: column;
   gap: 14px;
 }
+.asset-detail__photo-card {
+  height: 100%;
+}
+.asset-detail__photo-gallery {
+  margin-bottom: 8px;
+  align-content: flex-start;
+}
+.asset-detail__photo-upload {
+  margin-top: auto;
+}
 .asset-photo-card__content {
   display: flex;
   flex-direction: column;

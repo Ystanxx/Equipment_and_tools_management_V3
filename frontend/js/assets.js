@@ -495,17 +495,10 @@ Router.register('asset-detail', async (params) => {
 
   // Load inventory photos
   let inventoryPhotos = [];
-  let admins = [];
   try {
     const pr = await Api.listAttachments({ related_type: 'Asset', related_id: asset.id, photo_type: 'INVENTORY' });
     inventoryPhotos = pr.data || [];
   } catch (e) { /* ignore */ }
-  if (user.role === 'SUPER_ADMIN') {
-    try {
-      const usersRes = await Api.listUsers({ page_size: 100 });
-      admins = (usersRes.data.items || []).filter(u => u.role === 'ASSET_ADMIN' || u.role === 'SUPER_ADMIN');
-    } catch (e) { /* ignore */ }
-  }
 
   const detailHtml = `
     <div class="stack stack--page">
@@ -523,56 +516,45 @@ Router.register('asset-detail', async (params) => {
         </div>
       </div>
 
-      <div class="content-row">
+      <div class="content-row content-row--stretch">
         <div class="content-main">
-        <div class="card stack--md">
-          <h3>基本信息</h3>
-          <div class="stack--sm">
-            <div class="meta-row"><span class="meta-row__label">编号</span><span class="meta-row__value">${Utils.escapeHtml(asset.asset_code)}</span></div>
-            <div class="meta-row"><span class="meta-row__label">名称</span><span class="meta-row__value">${Utils.escapeHtml(asset.name)}</span></div>
+          <div class="card stack--md">
+            <h3>基本信息</h3>
+            <div class="stack--sm">
+              <div class="meta-row"><span class="meta-row__label">编号</span><span class="meta-row__value">${Utils.escapeHtml(asset.asset_code)}</span></div>
+              <div class="meta-row"><span class="meta-row__label">名称</span><span class="meta-row__value">${Utils.escapeHtml(asset.name)}</span></div>
               <div class="meta-row"><span class="meta-row__label">资产性质</span><span class="meta-row__value">${Utils.escapeHtml(asset.asset_type_name || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">分类</span><span class="meta-row__value">${Utils.escapeHtml(asset.category_name || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">位置</span><span class="meta-row__value">${Utils.escapeHtml(asset.location_name || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">管理员</span><span class="meta-row__value">${Utils.escapeHtml(asset.admin_name || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">品牌</span><span class="meta-row__value">${Utils.escapeHtml(asset.brand || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">型号</span><span class="meta-row__value">${Utils.escapeHtml(asset.model || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">序列号</span><span class="meta-row__value">${Utils.escapeHtml(asset.serial_number || '-')}</span></div>
-            <div class="meta-row"><span class="meta-row__label">入库日期</span><span class="meta-row__value">${Utils.formatDate(asset.entry_date)}</span></div>
-            <div class="meta-row"><span class="meta-row__label">创建时间</span><span class="meta-row__value">${Utils.formatDateTime(asset.created_at)}</span></div>
+              <div class="meta-row"><span class="meta-row__label">分类</span><span class="meta-row__value">${Utils.escapeHtml(asset.category_name || '-')}</span></div>
+              <div class="meta-row"><span class="meta-row__label">位置</span><span class="meta-row__value">${Utils.escapeHtml(asset.location_name || '-')}</span></div>
+              <div class="meta-row"><span class="meta-row__label">管理员</span><span class="meta-row__value">${Utils.escapeHtml(asset.admin_name || '-')}</span></div>
+              <div class="meta-row"><span class="meta-row__label">品牌</span><span class="meta-row__value">${Utils.escapeHtml(asset.brand || '-')}</span></div>
+              <div class="meta-row"><span class="meta-row__label">型号</span><span class="meta-row__value">${Utils.escapeHtml(asset.model || '-')}</span></div>
+              <div class="meta-row"><span class="meta-row__label">序列号</span><span class="meta-row__value">${Utils.escapeHtml(asset.serial_number || '-')}</span></div>
+              <div class="meta-row"><span class="meta-row__label">入库日期</span><span class="meta-row__value">${Utils.formatDate(asset.entry_date)}</span></div>
+              <div class="meta-row"><span class="meta-row__label">创建时间</span><span class="meta-row__value">${Utils.formatDateTime(asset.created_at)}</span></div>
+            </div>
           </div>
-        </div>
-        ${asset.description ? `<div class="card stack--sm"><h3>描述</h3><p class="text-sm">${Utils.escapeHtml(asset.description)}</p></div>` : ''}
-        ${asset.remark ? `<div class="card stack--sm"><h3>备注</h3><p class="text-sm">${Utils.escapeHtml(asset.remark)}</p></div>` : ''}
         </div>
         <div class="content-side">
-        <div class="card stack--md">
-          <h3>库存照片</h3>
-          <div id="asset-photo-gallery" class="photo-gallery" style="margin-bottom:8px;">
-            ${inventoryPhotos.length > 0 ? inventoryPhotos.map(p =>
-              `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
-            ).join('') : '<p class="text-sm text-muted">暂无照片</p>'}
+          <div class="card stack--md asset-detail__photo-card">
+            <h3>库存照片</h3>
+            <div id="asset-photo-gallery" class="photo-gallery asset-detail__photo-gallery">
+              ${inventoryPhotos.length > 0 ? inventoryPhotos.map(p =>
+                `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
+              ).join('') : '<p class="text-sm text-muted">暂无照片</p>'}
+            </div>
+            ${canEditAsset ? `
+            <div class="form-group asset-detail__photo-upload">
+              <label class="form-label">上传库存照片</label>
+              <input type="file" id="asset-photo-upload" accept="image/jpeg,image/png,image/webp" multiple style="font-size:0.8125rem;">
+              <div id="asset-upload-preview" class="upload-preview-grid upload-preview-grid--compact" style="margin-top:6px;"></div>
+              <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;">选择照片</button>
+            </div>` : ''}
           </div>
-          ${canEditAsset ? `
-          <div class="form-group" style="margin-top:8px;">
-            <label class="form-label">上传库存照片</label>
-            <input type="file" id="asset-photo-upload" accept="image/jpeg,image/png,image/webp" multiple style="font-size:0.8125rem;">
-            <div id="asset-upload-preview" class="upload-preview-grid upload-preview-grid--compact" style="margin-top:6px;"></div>
-            <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;">选择照片</button>
-          </div>` : ''}
-        </div>
-        ${user.role === 'SUPER_ADMIN' ? `
-        <div class="card stack--md">
-          <h3>管理员分配</h3>
-          <p class="text-sm text-muted" style="margin-bottom:4px;">当前管理员：${Utils.escapeHtml(asset.admin_name || '未分配')}</p>
-          <div class="form-group">
-            <select id="asset-admin-select" class="form-select">
-              ${admins.map(a => `<option value="${a.id}" ${asset.admin_id === a.id ? 'selected' : ''}>${Utils.escapeHtml(a.full_name)} (${Utils.escapeHtml(a.username)})</option>`).join('')}
-            </select>
-            <button class="btn btn--secondary btn--sm" id="asset-admin-change-btn">变更管理员</button>
-          </div>
-        </div>` : ''}
         </div>
       </div>
+      ${asset.description ? `<div class="card stack--sm"><h3>描述</h3><p class="text-sm">${Utils.escapeHtml(asset.description)}</p></div>` : ''}
+      ${asset.remark ? `<div class="card stack--sm"><h3>备注</h3><p class="text-sm">${Utils.escapeHtml(asset.remark)}</p></div>` : ''}
     </div>`;
 
   if (isAdmin) {
@@ -691,26 +673,6 @@ Router.register('asset-detail', async (params) => {
     });
   }
 
-  // Super admin: change device admin
-  const adminChangeBtn = document.getElementById('asset-admin-change-btn');
-  if (adminChangeBtn) {
-    adminChangeBtn.addEventListener('click', async () => {
-      const sel = document.getElementById('asset-admin-select');
-      if (!sel || !sel.value) return;
-      try {
-        adminChangeBtn.disabled = true;
-        adminChangeBtn.textContent = '变更中...';
-        await Api.updateAssetAdmin(asset.id, sel.value);
-        Utils.showToast('管理员已变更');
-        Router.navigate('asset-detail', { id: asset.id, from: fromRoute });
-      } catch (e) {
-        Utils.showToast(e.message, 'error');
-        adminChangeBtn.disabled = false;
-        adminChangeBtn.textContent = '变更管理员';
-      }
-    });
-  }
-
   const deleteBtn = document.getElementById('asset-delete-btn');
   if (deleteBtn) {
     deleteBtn.addEventListener('click', () => {
@@ -729,6 +691,8 @@ Router.register('asset-form', async (params) => {
   const user = Api.getUser();
   const isEdit = !!params.id;
   const fromRoute = params.from === 'asset-list' ? 'asset-list' : 'managed-assets';
+  const canEditAdminField = user.role === 'SUPER_ADMIN';
+  const shouldShowAdminField = canEditAdminField || user.role === 'ASSET_ADMIN';
   const editableStatusOptions = ['IN_STOCK', 'DAMAGED', 'LOST', 'DISABLED'];
   const workflowManagedStatuses = ['PENDING_BORROW_APPROVAL', 'BORROWED', 'PENDING_RETURN_APPROVAL'];
   let asset = null, assetTypes = [], categories = [], locations = [], admins = [];
@@ -788,6 +752,11 @@ Router.register('asset-form', async (params) => {
     `).join('');
     return placeholderOption + adminOptions;
   };
+  const resolveReadonlyAdminLabel = () => {
+    if (asset?.admin_name) return asset.admin_name;
+    if (user?.full_name && user?.username) return `${user.full_name} (${user.username})`;
+    return user?.full_name || user?.username || '当前登录管理员';
+  };
 
   const formHtml = `
     <div class="stack stack--page">
@@ -840,12 +809,17 @@ Router.register('asset-form', async (params) => {
               ${renderSelectOptions(locations, asset?.location_id, '请选择位置')}
             </select>
           </div>
-          ${user.role === 'SUPER_ADMIN' ? `
+          ${shouldShowAdminField ? `
           <div class="form-group">
-            <label class="form-label">设备管理员 <span class="form-required">*必填，超管必须指定</span></label>
+            <label class="form-label">设备管理员 ${canEditAdminField ? '<span class="form-required">*必填，超管必须指定</span>' : ''}</label>
+            ${canEditAdminField ? `
             <select id="af-admin" class="form-select">
               ${renderAdminOptions()}
             </select>
+            ` : `
+            <input type="text" class="form-input" value="${Utils.escapeHtml(resolveReadonlyAdminLabel())}" disabled>
+            <div class="text-xs text-muted">设备管理员仅可维护自己负责的设备，不能在此修改归属。</div>
+            `}
           </div>` : ''}
         </div>
 

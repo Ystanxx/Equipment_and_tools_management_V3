@@ -496,7 +496,7 @@ Router.register('my-returns', async (params) => {
 Router.register('return-approvals', async (params) => {
   const app = document.getElementById('app');
   const page = parseInt(params.page) || 1;
-  const statusFilter = params.status || (params.history === '1' ? 'ALL' : 'PENDING');
+  const statusFilter = params.status || 'ALL';
   const isMobile = window.innerWidth <= 768;
 
   const returnApprovalStatusMeta = {
@@ -522,7 +522,7 @@ Router.register('return-approvals', async (params) => {
 
   function buildReturnApprovalParams(currentStatus, currentPage = 1) {
     const nextParams = {};
-    if (currentStatus && currentStatus !== 'PENDING') nextParams.status = currentStatus;
+    if (currentStatus && currentStatus !== 'ALL') nextParams.status = currentStatus;
     if (currentPage > 1) nextParams.page = currentPage;
     return nextParams;
   }
@@ -663,7 +663,7 @@ Router.register('return-approvals', async (params) => {
         await Api.approveReturnTask(currentTask.id, comment);
         panel.close();
         Utils.showToast('已通过');
-        Router.navigate('return-approvals', { status: statusFilter, page });
+        Router.navigate('return-approvals', buildReturnApprovalParams(statusFilter, page));
       });
     });
     panel.overlay.querySelector('.approval-panel-reject-btn')?.addEventListener('click', () => {
@@ -671,7 +671,7 @@ Router.register('return-approvals', async (params) => {
         await Api.rejectReturnTask(currentTask.id, comment);
         panel.close();
         Utils.showToast('已驳回');
-        Router.navigate('return-approvals', { status: statusFilter, page });
+        Router.navigate('return-approvals', buildReturnApprovalParams(statusFilter, page));
       }, true);
     });
     panel.overlay.querySelector('.approval-panel-stockin-btn')?.addEventListener('click', () => {
@@ -679,7 +679,7 @@ Router.register('return-approvals', async (params) => {
         await Api.stockInReturnOrder(order.id);
         panel.close();
         Utils.showToast('已确认入库');
-        Router.navigate('return-approvals', { status: statusFilter, page });
+        Router.navigate('return-approvals', buildReturnApprovalParams(statusFilter, page));
       });
     });
   }
