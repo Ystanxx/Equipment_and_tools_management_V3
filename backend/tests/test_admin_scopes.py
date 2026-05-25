@@ -192,6 +192,58 @@ def test_asset_admin_cannot_edit_other_admin_asset(client, db, asset_type_ids):
     assert update_asset_res.json()["detail"] == "只能编辑自己负责的设备"
 
 
+def test_super_admin_can_update_asset_admin_via_asset_edit_api(client, db, asset_type_ids):
+    _, super_headers = _login_as_role(client, db, "edit_super", UserRole.SUPER_ADMIN)
+    owner_admin, _ = _login_as_role(client, db, "edit_owner_admin", UserRole.ASSET_ADMIN)
+    target_admin, _ = _login_as_role(client, db, "edit_target_admin", UserRole.ASSET_ADMIN)
+
+    create_asset_res = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "超管改管理员设备",
+            "asset_type_id": asset_type_ids["固定资产"],
+            "admin_id": str(owner_admin.id),
+        },
+        headers=super_headers,
+    )
+    assert create_asset_res.status_code == 200
+    asset_id = create_asset_res.json()["data"]["id"]
+
+    update_asset_res = client.put(
+        f"/api/v1/assets/{asset_id}",
+        json={"admin_id": str(target_admin.id)},
+        headers=super_headers,
+    )
+    assert update_asset_res.status_code == 200
+    assert update_asset_res.json()["data"]["admin_id"] == str(target_admin.id)
+
+
+def test_asset_admin_cannot_update_asset_admin_via_asset_edit_api(client, db, asset_type_ids):
+    _, super_headers = _login_as_role(client, db, "edit_scope_super", UserRole.SUPER_ADMIN)
+    owner_admin, owner_headers = _login_as_role(client, db, "edit_scope_owner", UserRole.ASSET_ADMIN)
+    target_admin, _ = _login_as_role(client, db, "edit_scope_target", UserRole.ASSET_ADMIN)
+
+    create_asset_res = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "资产管理员不可改归属设备",
+            "asset_type_id": asset_type_ids["固定资产"],
+            "admin_id": str(owner_admin.id),
+        },
+        headers=super_headers,
+    )
+    assert create_asset_res.status_code == 200
+    asset_id = create_asset_res.json()["data"]["id"]
+
+    update_asset_res = client.put(
+        f"/api/v1/assets/{asset_id}",
+        json={"admin_id": str(target_admin.id)},
+        headers=owner_headers,
+    )
+    assert update_asset_res.status_code == 403
+    assert update_asset_res.json()["detail"] == "只有超管可以修改设备管理员"
+
+
 def test_asset_admin_only_sees_and_delivers_own_ready_orders(client, db, asset_type_ids):
     _, super_headers = _login_as_role(client, db, "deliver_super", UserRole.SUPER_ADMIN)
     owner_admin, owner_headers = _login_as_role(client, db, "deliver_owner", UserRole.ASSET_ADMIN)
