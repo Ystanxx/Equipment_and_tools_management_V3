@@ -13,5 +13,6 @@ pypinyin==0.53.0
 pillow==11.0.0
 python-dotenv==1.0.1
 httpx==0.28.1
+apscheduler==3.11.2
 pytest==8.3.4
 pytest-httpx==0.35.0

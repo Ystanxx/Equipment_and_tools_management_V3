@@ -40,7 +40,17 @@ def seed_super_admin():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_super_admin()
+
+    # Start photo cleanup scheduler
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from app.services.photo_cleanup_service import run_cleanup
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(run_cleanup, "cron", hour=3, minute=0, id="photo_cleanup")
+    scheduler.start()
+
     yield
+
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(

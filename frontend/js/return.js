@@ -244,14 +244,19 @@ Router.register('return-detail', async (params) => {
 
   const sm = returnStatusMap[order.status] || { label: order.status, class: '' };
 
-  // Load photos for each item
+  // Load photos for each item & timeline
   const itemPhotos = {};
+  let timelineEvents = [];
   for (const item of order.items) {
     try {
       const pr = await Api.listAttachments({ related_type: 'ReturnOrderItem', related_id: item.id, photo_type: 'RETURN_ITEM' });
       itemPhotos[item.id] = pr.data || [];
     } catch (e) { /* ignore */ }
   }
+  try {
+    const tr = await Api.getOrderTimeline(order.id);
+    timelineEvents = tr.data || [];
+  } catch (e) { /* ignore */ }
 
   const detailHtml = `
     <div class="page-header">
@@ -316,6 +321,23 @@ Router.register('return-detail', async (params) => {
                 </div>`;
             }).join('')}
           </div>
+        </div>
+
+        <div class="card stack--sm">
+          <h3>事件时间线</h3>
+          ${timelineEvents.length > 0 ? `
+          <div class="timeline">
+            ${timelineEvents.map(ev => `
+              <div class="timeline__item">
+                <div class="timeline__dot"></div>
+                <div class="timeline__content">
+                  <span class="text-sm">${Utils.escapeHtml(ev.description || ev.action)}</span>
+                  <span class="text-xs text-muted">${Utils.formatDateTime(ev.created_at)}</span>
+                </div>
+              </div>`).join('')}
+          </div>` : `
+          <div class="meta-row"><span class="meta-row__label">创建</span><span class="meta-row__value text-sm">${Utils.formatDateTime(order.created_at)}</span></div>
+          `}
         </div>
       </div>
     </div>`;
