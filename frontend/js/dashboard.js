@@ -148,7 +148,7 @@ Router.register('dashboard', async () => {
               </tbody>
             </table>
           </div>
-          <a href="#audit-logs" class="text-sm text-accent" style="margin-top:4px;display:inline-block;">查看全部日志 →</a>`}
+          ${user.role === 'SUPER_ADMIN' ? '<a href="#audit-logs" class="text-sm text-accent" style="margin-top:4px;display:inline-block;">查看全部日志 →</a>' : ''}`}
         </div>
       </div>
       <div class="content-side">

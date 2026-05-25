@@ -100,15 +100,14 @@ Router.register('categories', async () => {
     });
   });
 
-  // Disable buttons
+  // Disable buttons with modal
   document.querySelectorAll('.cat-disable-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('确认停用该分类？')) return;
-      try {
+    btn.addEventListener('click', () => {
+      _showApprovalModal('停用分类', '确认停用该分类？停用后新建设备将无法选择此分类。', async () => {
         await Api.deleteCategory(btn.dataset.id);
         Utils.showToast('分类已停用');
         Router.navigate('categories');
-      } catch (e) { Utils.showToast(e.message, 'error'); }
+      });
     });
   });
 
