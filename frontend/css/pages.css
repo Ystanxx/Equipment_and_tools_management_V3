@@ -423,6 +423,8 @@
 .asset-table th,
 .asset-table td {
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .asset-table th.asset-table__status,
 .asset-table td.asset-table__status {
@@ -480,10 +482,18 @@
   width: 19%;
 }
 .asset-table__cell-main {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 600;
   line-height: 1.45;
 }
 .asset-table__cell-sub {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-muted);
   font-size: 0.875rem;
   line-height: 1.35;
@@ -495,6 +505,30 @@
 }
 .asset-table tbody tr:focus-visible td {
   background: #f8f1e9;
+}
+@media (max-width: 1280px) and (min-width: 769px) {
+  .asset-table-card .table-wrapper {
+    overflow-x: auto;
+  }
+  .asset-table {
+    min-width: 960px;
+  }
+  .asset-table__name,
+  .asset-table__code {
+    width: 16%;
+  }
+  .asset-table__type {
+    width: 11%;
+  }
+  .asset-table__category {
+    width: 12%;
+  }
+  .asset-table__admin {
+    width: 12%;
+  }
+  .asset-table__location {
+    width: 21%;
+  }
 }
 .property-page__header {
   margin-bottom: 2px;
