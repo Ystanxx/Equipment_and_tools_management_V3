@@ -59,6 +59,11 @@ app.add_middleware(
 
 app.include_router(api_router)
 
+# Serve uploaded files
+UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 # Serve frontend static files
 if FRONTEND_DIR.exists():
     app.mount("/css", StaticFiles(directory=FRONTEND_DIR / "css"), name="css")
