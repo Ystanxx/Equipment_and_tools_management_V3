@@ -225,6 +225,15 @@ def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> B
         order_id=order.id,
         description=f"确认交付借用单 {order.order_no}",
     )
+    notification_service.create(
+        db,
+        recipient_id=order.applicant_id,
+        title="借用设备已确认交付",
+        content=f"管理员 {deliverer.full_name} 已确认交付借用单 {order.order_no}，共 {order.item_count} 件设备。",
+        notification_type="BORROW",
+        related_type="BorrowOrder",
+        related_id=order.id,
+    )
     db.commit()
     db.refresh(order)
     return order
