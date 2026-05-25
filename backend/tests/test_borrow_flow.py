@@ -1,6 +1,6 @@
 from app.core.security import hash_password
 from app.models.user import User
-from app.utils.enums import AssetType, UserRole, UserStatus
+from app.utils.enums import UserRole, UserStatus
 
 
 def _create_admin(db, username: str, full_name: str) -> User:
@@ -18,13 +18,13 @@ def _create_admin(db, username: str, full_name: str) -> User:
     return user
 
 
-def _create_asset(client, auth_headers, *, category_id: str, location_id: str, admin_id: str, name: str) -> str:
+def _create_asset(client, auth_headers, *, category_id: str, location_id: str, admin_id: str, name: str, asset_type_id: str) -> str:
     response = client.post(
         "/api/v1/assets",
         headers=auth_headers,
         json={
             "name": name,
-            "asset_type": AssetType.DEVICE.value,
+            "asset_type_id": asset_type_id,
             "category_id": category_id,
             "location_id": location_id,
             "admin_id": admin_id,
@@ -34,7 +34,7 @@ def _create_asset(client, auth_headers, *, category_id: str, location_id: str, a
     return response.json()["data"]["id"]
 
 
-def test_rejecting_split_borrow_order_restores_all_assets(client, db, auth_headers):
+def test_rejecting_split_borrow_order_restores_all_assets(client, db, auth_headers, asset_type_ids):
     admin_one = _create_admin(db, "asset_admin_one", "管理员一")
     admin_two = _create_admin(db, "asset_admin_two", "管理员二")
 
@@ -56,6 +56,7 @@ def test_rejecting_split_borrow_order_restores_all_assets(client, db, auth_heade
         location_id=location_id,
         admin_id=str(admin_one.id),
         name="多管理员借用设备一",
+        asset_type_id=asset_type_ids["固定资产"],
     )
     second_asset_id = _create_asset(
         client,
@@ -64,6 +65,7 @@ def test_rejecting_split_borrow_order_restores_all_assets(client, db, auth_heade
         location_id=location_id,
         admin_id=str(admin_two.id),
         name="多管理员借用设备二",
+        asset_type_id=asset_type_ids["固定资产"],
     )
 
     order = client.post(

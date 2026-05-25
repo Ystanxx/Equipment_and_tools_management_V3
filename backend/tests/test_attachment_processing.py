@@ -4,10 +4,9 @@ from pathlib import Path
 from PIL import Image
 
 from app.services import attachment_service
-from app.utils.enums import AssetType
 
 
-def _create_asset(client, auth_headers, admin_id: str) -> str:
+def _create_asset(client, auth_headers, admin_id: str, asset_type_id: str) -> str:
     category = client.post(
         "/api/v1/asset-categories",
         headers=auth_headers,
@@ -23,7 +22,7 @@ def _create_asset(client, auth_headers, admin_id: str) -> str:
         headers=auth_headers,
         json={
             "name": "附件测试设备",
-            "asset_type": AssetType.DEVICE.value,
+            "asset_type_id": asset_type_id,
             "category_id": category,
             "location_id": location,
             "admin_id": admin_id,
@@ -32,11 +31,11 @@ def _create_asset(client, auth_headers, admin_id: str) -> str:
     return response.json()["data"]["id"]
 
 
-def test_attachment_upload_generates_thumbnail_and_audit_log(client, auth_headers, tmp_path, monkeypatch):
+def test_attachment_upload_generates_thumbnail_and_audit_log(client, auth_headers, tmp_path, monkeypatch, asset_type_ids):
     monkeypatch.setattr(attachment_service, "UPLOAD_DIR", tmp_path)
 
     me = client.get("/api/v1/auth/me", headers=auth_headers).json()["data"]
-    asset_id = _create_asset(client, auth_headers, me["id"])
+    asset_id = _create_asset(client, auth_headers, me["id"], asset_type_ids["固定资产"])
 
     image = Image.new("RGB", (2400, 1800), color=(210, 140, 120))
     payload = BytesIO()

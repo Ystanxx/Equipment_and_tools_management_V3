@@ -18,6 +18,8 @@ def _run_live_return_e2e() -> None:
 
     me_response = httpx.get(f"{base}/auth/me", headers=headers)
     admin_user_id = me_response.json()["data"]["id"]
+    asset_type_response = httpx.get(f"{base}/asset-types", headers=headers)
+    asset_type_id = next(item["id"] for item in asset_type_response.json()["data"] if item["name"] == "固定资产")
     print(f"1. Login OK, admin_id={admin_user_id}")
 
     # 2. 创建分类和位置
@@ -39,7 +41,7 @@ def _run_live_return_e2e() -> None:
             f"{base}/assets",
             json={
                 "name": f"ReturnTest{tag}_{index + 1}",
-                "asset_type": "DEVICE",
+                "asset_type_id": asset_type_id,
                 "category_id": category_id,
                 "location_id": location_id,
                 "admin_id": admin_user_id,

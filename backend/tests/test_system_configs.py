@@ -1,7 +1,6 @@
 from sqlalchemy import text
 
 from app.models.system_config import SystemConfig
-from app.utils.enums import AssetType
 
 
 def _create_category_and_location(client, auth_headers, suffix: str) -> tuple[str, str]:
@@ -18,13 +17,13 @@ def _create_category_and_location(client, auth_headers, suffix: str) -> tuple[st
     return category.json()["data"]["id"], location.json()["data"]["id"]
 
 
-def _create_asset(client, auth_headers, *, category_id: str, location_id: str, admin_id: str, name: str) -> str:
+def _create_asset(client, auth_headers, *, category_id: str, location_id: str, admin_id: str, name: str, asset_type_id: str) -> str:
     response = client.post(
         "/api/v1/assets",
         headers=auth_headers,
         json={
             "name": name,
-            "asset_type": AssetType.DEVICE.value,
+            "asset_type_id": asset_type_id,
             "category_id": category_id,
             "location_id": location_id,
             "admin_id": admin_id,
@@ -44,7 +43,7 @@ def test_list_system_configs_returns_defaults(client, auth_headers):
     assert config_map["photo_target_format"] == "JPEG"
 
 
-def test_system_configs_drive_borrow_validation(client, auth_headers):
+def test_system_configs_drive_borrow_validation(client, auth_headers, asset_type_ids):
     update = client.put(
         "/api/v1/system-configs",
         headers=auth_headers,
@@ -67,6 +66,7 @@ def test_system_configs_drive_borrow_validation(client, auth_headers):
         location_id=location_id,
         admin_id=me["id"],
         name="配置校验设备一",
+        asset_type_id=asset_type_ids["固定资产"],
     )
     second_asset_id = _create_asset(
         client,
@@ -75,6 +75,7 @@ def test_system_configs_drive_borrow_validation(client, auth_headers):
         location_id=location_id,
         admin_id=me["id"],
         name="配置校验设备二",
+        asset_type_id=asset_type_ids["固定资产"],
     )
 
     missing_required_fields = client.post(

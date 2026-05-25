@@ -19,13 +19,13 @@ def test_empty_name():
     assert get_pinyin_prefix("123") == "X"
 
 
-def test_generate_sequential_codes(client, auth_headers):
+def test_generate_sequential_codes(client, auth_headers, asset_type_ids):
     admin_id = _get_admin_id(client, auth_headers)
     codes = []
     for _ in range(3):
         res = client.post("/api/v1/assets", json={
             "name": "可编程电源",
-            "asset_type": "DEVICE",
+            "asset_type_id": asset_type_ids["固定资产"],
             "admin_id": admin_id,
         }, headers=auth_headers)
         codes.append(res.json()["data"]["asset_code"])
