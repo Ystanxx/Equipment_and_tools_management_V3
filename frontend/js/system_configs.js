@@ -20,7 +20,7 @@ Router.register('system-configs', async () => {
       return `
         <label class="switch-row">
           <input type="checkbox" class="config-input" data-key="${item.key}" ${item.value ? 'checked' : ''}>
-          <span>${item.value ? '已启用' : '已关闭'}</span>
+          <span class="switch-row__label">${item.value ? '已启用' : '已关闭'}</span>
         </label>`;
     }
 
@@ -37,37 +37,45 @@ Router.register('system-configs', async () => {
     return `<input type="${inputType}" class="form-input config-input" data-key="${item.key}" value="${Utils.escapeHtml(String(item.value ?? ''))}" ${minAttr} ${maxAttr}>`;
   };
 
-  const renderGroup = (title, desc, items) => `
-    <div class="card stack--lg">
-      <div class="stack--sm">
-        <h3>${title}</h3>
-        <p class="text-sm text-muted">${desc}</p>
+  const isModified = (item) => false; // 不再基于持久化值高亮，改为前端脏状态追踪
+
+  const renderItem = (item) => `
+    <div class="config-row" data-key="${item.key}">
+      <div class="config-row__info">
+        <div class="config-row__label">
+          ${Utils.escapeHtml(item.label || item.key)}
+          <span class="config-row__default-tag">默认：${Utils.escapeHtml(String(item.default_value))}</span>
+        </div>
+        <div class="config-row__desc">${Utils.escapeHtml(item.description)}</div>
       </div>
-      <div class="stack--md">
-        ${items.map(item => `
-          <div class="form-group">
-            <label class="form-label">${Utils.escapeHtml(item.label || item.key)}</label>
-            <p class="text-xs text-muted" style="margin-bottom:4px;">键名：${Utils.escapeHtml(item.key)}</p>
-            <p class="text-xs text-muted" style="margin-bottom:8px;">${Utils.escapeHtml(item.description)}</p>
-            ${renderField(item)}
-            <p class="text-xs text-muted" style="margin-top:6px;">默认值：${Utils.escapeHtml(String(item.default_value))}</p>
-          </div>
-        `).join('')}
+      <div class="config-row__control">
+        ${renderField(item)}
+      </div>
+    </div>`;
+
+  const renderGroup = (title, desc, items) => `
+    <div class="card config-card">
+      <div class="config-card__head">
+        <h3 class="config-card__title">${title}</h3>
+        <p class="config-card__desc">${desc}</p>
+      </div>
+      <div class="config-card__body">
+        ${items.map(renderItem).join('')}
       </div>
     </div>`;
 
   const groupMeta = {
     borrow: {
       title: '借用规则',
-      desc: '这些配置会直接影响前端表单校验与后端借用单创建规则。',
+      desc: '控制借用单提交的前端校验与后端规则。',
     },
     photo: {
       title: '图片策略',
-      desc: '附件上传时会按这里的参数统一压缩、生成缩略图，并为后续清理保留配置入口。',
+      desc: '附件上传的压缩参数、缩略图生成与清理保留策略。',
     },
     notification: {
       title: '通知开关',
-      desc: '超级管理员可在这里控制全局通知渠道；每个用户仍可在个人中心设置自己的邮件接收偏好。',
+      desc: '全局通知渠道控制；每个用户可在个人中心设置自己的邮件偏好。',
     },
   };
   const groupedConfigs = Object.entries(groupMeta)
@@ -126,5 +134,34 @@ Router.register('system-configs', async () => {
       saveBtn.disabled = false;
       saveBtn.textContent = '保存配置';
     }
+  });
+
+  // 脏状态追踪：记录初始值，用户修改时高亮对应行
+  const originalValues = {};
+  document.querySelectorAll('.config-input').forEach(input => {
+    const key = input.dataset.key;
+    const item = configs.find(c => c.key === key);
+    if (!item) return;
+    const isBool = item.value_type === 'bool';
+    originalValues[key] = isBool ? input.checked : input.value;
+
+    const row = input.closest('.config-row');
+    const updateDirtyState = () => {
+      const currentVal = isBool ? input.checked : input.value;
+      if (String(currentVal) !== String(originalValues[key])) {
+        row.classList.add('config-row--dirty');
+      } else {
+        row.classList.remove('config-row--dirty');
+      }
+    };
+
+    input.addEventListener(isBool ? 'change' : 'input', () => {
+      updateDirtyState();
+      // 实时更新开关标签
+      if (isBool) {
+        const label = input.closest('.switch-row')?.querySelector('.switch-row__label');
+        if (label) label.textContent = input.checked ? '已启用' : '已关闭';
+      }
+    });
   });
 });

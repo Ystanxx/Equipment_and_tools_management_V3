@@ -313,13 +313,12 @@
 }
 .user-table th.user-table__status-head,
 .user-table td.user-table__status-cell {
-  width: 132px;
-  min-width: 132px;
+  width: 100px;
+  min-width: 100px;
 }
 .user-table th.user-table__actions-head,
 .user-table td.user-table__actions-cell {
-  width: 344px;
-  min-width: 344px;
+  min-width: 280px;
 }
 .user-table td {
   padding-top: 10px;
@@ -338,25 +337,109 @@
   font-size: 0.68rem;
 }
 .user-table__actions {
-  display: grid;
-  grid-template-columns: 96px 128px 72px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  justify-content: center;
+  gap: 6px;
 }
 .user-table__role-select {
-  width: 100%;
-  min-width: 0;
+  width: 124px;
+  flex-shrink: 0;
   padding: 8px 10px;
   font-size: 0.75rem;
 }
-.user-table__action-btn,
-.user-table__action-placeholder {
-  width: 100%;
+.user-table__action-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .user-table__action-placeholder {
-  display: block;
-  height: 34px;
+  display: none;
+}
+
+/* ===== System configs page ===== */
+.config-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.config-card__head {
+  padding: 20px 24px 0;
+}
+.config-card__head .config-card__title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.config-card__head .config-card__desc {
+  margin: 0 0 16px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.config-card__body {
+  padding: 4px 24px 8px;
+}
+.config-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--panel-alt);
+}
+.config-row:last-child {
+  border-bottom: none;
+}
+.config-row--dirty .config-row__default-tag {
+  color: #fff;
+  background: var(--accent);
+}
+.config-row__info {
+  flex: 1;
+  min-width: 0;
+}
+.config-row__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.config-row__default-tag {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--muted);
+  background: var(--panel-alt);
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.config-row__desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.config-row__control {
+  flex-shrink: 0;
+  min-width: 180px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.config-row__control .form-input,
+.config-row__control .form-select {
+  width: 200px;
+}
+.config-row__control .switch-row {
+  margin: 0;
+}
+.switch-row__label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-width: 48px;
 }
 
 /* ===== Registration pending page ===== */

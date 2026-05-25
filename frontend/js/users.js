@@ -66,12 +66,12 @@ Router.register('user-mgmt', async () => {
           <div class="table-wrapper">
             <table class="data-table user-table">
               <colgroup>
-                <col style="width:180px;">
-                <col style="width:150px;">
-                <col style="width:340px;">
-                <col style="width:170px;">
-                <col style="width:132px;">
-                <col style="width:344px;">
+                <col style="width:160px;">
+                <col style="width:120px;">
+                <col style="width:auto;">
+                <col style="width:110px;">
+                <col style="width:100px;">
+                <col style="width:auto; min-width:280px;">
               </colgroup>
               <thead><tr><th>用户名</th><th>姓名</th><th>邮箱</th><th>角色</th><th class="user-table__status-head">状态</th><th class="user-table__actions-head">操作</th></tr></thead>
               <tbody>
