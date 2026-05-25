@@ -22,6 +22,7 @@ router = APIRouter(prefix="/borrow-orders", tags=["借用单"])
 def _order_to_out(order) -> BorrowOrderOut:
     return BorrowOrderOut(
         id=order.id,
+        equipment_order_id=order.equipment_order_id,
         order_no=order.order_no,
         applicant_id=order.applicant_id,
         applicant_name=order.applicant.full_name if order.applicant else None,
@@ -86,13 +87,16 @@ def list_orders(
     page_size: int = 20,
     status: str | None = None,
     mine: bool = False,
+    managed: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user),
 ):
     applicant_id = user.id if (mine or user.role == UserRole.USER) else None
+    managed_admin_id = user.id if (managed and user.role == UserRole.ASSET_ADMIN) else None
     items, total = borrow_service.list_borrow_orders(
         db=db,
         applicant_id=applicant_id,
+        managed_admin_id=managed_admin_id,
         status_filter=status,
         page=page,
         page_size=page_size,
@@ -100,6 +104,7 @@ def list_orders(
     briefs = [
         BorrowOrderBrief(
             id=o.id,
+            equipment_order_id=o.equipment_order_id,
             order_no=o.order_no,
             applicant_id=o.applicant_id,
             applicant_name=o.applicant.full_name if o.applicant else None,
@@ -119,8 +124,7 @@ def get_order(
     user: User = Depends(get_active_user),
 ):
     order = borrow_service.get_borrow_order(db, order_id)
-    # 普通用户只能查看自己的
-    if user.role == UserRole.USER and order.applicant_id != user.id:
+    if not borrow_service.user_can_access_borrow_order(order, user):
         raise HTTPException(status_code=403, detail="无权查看该借用单")
     return ResponseSchema(data=_order_to_out(order))
 

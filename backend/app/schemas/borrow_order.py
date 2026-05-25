@@ -50,12 +50,13 @@ class ApprovalItemDetail(BaseModel):
 class BorrowApprovalTaskOut(BaseModel):
     id: UUID
     order_id: UUID
+    equipment_order_id: Optional[UUID] = None
     order_no: Optional[str] = None
     applicant_name: Optional[str] = None
     approver_id: UUID
     approver_name: Optional[str] = None
-    item_ids: list[UUID] = []
-    item_details: list[ApprovalItemDetail] = []
+    item_ids: list[UUID] = Field(default_factory=list)
+    item_details: list[ApprovalItemDetail] = Field(default_factory=list)
     status: str
     comment: Optional[str] = None
     decided_at: Optional[datetime] = None
@@ -69,6 +70,7 @@ class BorrowApprovalTaskOut(BaseModel):
 
 class BorrowOrderOut(BaseModel):
     id: UUID
+    equipment_order_id: UUID
     order_no: str
     applicant_id: UUID
     applicant_name: Optional[str] = None
@@ -81,8 +83,8 @@ class BorrowOrderOut(BaseModel):
     delivered_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
-    items: list[BorrowOrderItemOut] = []
-    approval_tasks: list[BorrowApprovalTaskOut] = []
+    items: list[BorrowOrderItemOut] = Field(default_factory=list)
+    approval_tasks: list[BorrowApprovalTaskOut] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -90,6 +92,7 @@ class BorrowOrderOut(BaseModel):
 
 class BorrowOrderBrief(BaseModel):
     id: UUID
+    equipment_order_id: UUID
     order_no: str
     applicant_id: UUID
     applicant_name: Optional[str] = None

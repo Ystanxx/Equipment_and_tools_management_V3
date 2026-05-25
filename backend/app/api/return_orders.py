@@ -22,6 +22,7 @@ router = APIRouter(prefix="/return-orders", tags=["归还单"])
 def _order_to_out(order) -> ReturnOrderOut:
     return ReturnOrderOut(
         id=order.id,
+        equipment_order_id=order.equipment_order_id,
         order_no=order.order_no,
         borrow_order_id=order.borrow_order_id,
         borrow_order_no=order.borrow_order.order_no if order.borrow_order else None,
@@ -88,13 +89,16 @@ def list_orders(
     status: str | None = None,
     borrow_order_id: UUID | None = None,
     mine: bool = False,
+    managed: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user),
 ):
     applicant_id = user.id if (mine or user.role == UserRole.USER) else None
+    managed_admin_id = user.id if (managed and user.role == UserRole.ASSET_ADMIN) else None
     items, total = return_service.list_return_orders(
         db=db,
         applicant_id=applicant_id,
+        managed_admin_id=managed_admin_id,
         borrow_order_id=borrow_order_id,
         status_filter=status,
         page=page,
@@ -103,6 +107,7 @@ def list_orders(
     briefs = [
         ReturnOrderBrief(
             id=o.id,
+            equipment_order_id=o.equipment_order_id,
             order_no=o.order_no,
             borrow_order_no=o.borrow_order.order_no if o.borrow_order else None,
             applicant_id=o.applicant_id,
@@ -123,6 +128,16 @@ def get_order(
     user: User = Depends(get_active_user),
 ):
     order = return_service.get_return_order(db, order_id)
-    if user.role == UserRole.USER and order.applicant_id != user.id:
+    if not return_service.user_can_access_return_order(order, user):
         raise HTTPException(status_code=403, detail="无权查看该归还单")
+    return ResponseSchema(data=_order_to_out(order))
+
+
+@router.post("/{order_id}/stock-in", summary="确认入库")
+def stock_in_order(
+    order_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
+):
+    order = return_service.stock_in_return_order(db, order_id, user)
     return ResponseSchema(data=_order_to_out(order))

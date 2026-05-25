@@ -89,7 +89,7 @@ Router.register('return-submit', async (params) => {
             </div>
             <div style="margin-left:28px;margin-top:6px;">
               <label class="form-label">归还照片 <span class="form-required">*必填，每件单独拍照</span></label>
-              <div class="return-photo-preview" data-idx="${idx}" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
+              <div class="return-photo-preview upload-preview-grid upload-preview-grid--compact" data-idx="${idx}" style="margin-bottom:8px;"></div>
               <label class="btn btn--outline btn--sm" style="cursor:pointer;">
                 ${Utils.svgIcon('plus')} 添加照片
                 <input type="file" class="return-photos" data-idx="${idx}" accept="image/jpeg,image/png,image/webp" capture="environment" style="display:none;">
@@ -104,55 +104,93 @@ Router.register('return-submit', async (params) => {
         <textarea id="return-remark" class="form-textarea" placeholder="归还备注"></textarea>
       </div>
       <div id="return-error" class="form-error hidden"></div>
-      <button id="return-submit-btn" class="btn btn--primary btn--full">提交归还单</button>
+      <button id="return-submit-btn" class="btn btn--primary btn--full">确认提交归还</button>
     </div>`}
     </div>`;
 
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
   if (isAdmin) {
-    app.innerHTML = renderPcLayout('my-returns', formHtml);
+    app.innerHTML = renderPcLayout('my-orders', formHtml);
   } else {
     const isMobile = window.innerWidth <= 768;
     if (isMobile) {
-      app.innerHTML = renderMobileUserShell('my-returns', formHtml, {
+      app.innerHTML = renderMobileUserShell('my-orders', formHtml, {
         backHref: `borrow-detail?id=${borrowOrderId}`,
         backLabel: '返回借用单',
         compact: true,
       });
     } else {
-      app.innerHTML = renderUserLayout('my-returns', formHtml);
+      app.innerHTML = renderUserLayout('my-orders', formHtml);
     }
   }
 
   // Photo accumulation per item (fix: camera returns 1 file at a time)
-  const _returnPhotos = {}; // idx -> File[]
+  const _returnPhotos = {}; // idx -> [{ file, previewUrl, progress, error, stageToken, uploading }]
+  let isReturnUploading = false;
+  const hasReturnUploading = () => Object.values(_returnPhotos).some((photos) => photos.some((entry) => entry.uploading));
+  const hasReturnUploadFailed = () => Object.values(_returnPhotos).some((photos) => photos.some((entry) => entry.error));
   function renderReturnPhotoPreview(idx) {
     const preview = document.querySelector(`.return-photo-preview[data-idx="${idx}"]`);
     if (!preview) return;
     const photos = _returnPhotos[idx] || [];
     preview.innerHTML = '';
-    photos.forEach((f, fi) => {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;display:inline-block;';
-      const img = document.createElement('img');
-      img.src = URL.createObjectURL(f);
-      img.style.cssText = 'width:68px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--line);';
-      const del = document.createElement('button');
-      del.textContent = '×';
-      del.style.cssText = 'position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-      del.addEventListener('click', () => { photos.splice(fi, 1); renderReturnPhotoPreview(idx); });
-      wrap.appendChild(img);
-      wrap.appendChild(del);
-      preview.appendChild(wrap);
+    photos.forEach((entry, fi) => {
+      preview.appendChild(Utils.createUploadProgressTile(entry, {
+        compact: true,
+        alt: '归还照片预览',
+        onRemove: isReturnUploading ? null : async () => {
+          if (entry.stageToken) {
+            try {
+              await Api.discardStagedAttachment(entry.stageToken);
+            } catch (e) {
+              Utils.showToast(e.message || '移除照片失败', 'error');
+              return;
+            }
+          }
+          Utils.removeUploadPreviewEntry(photos, fi);
+          renderReturnPhotoPreview(idx);
+        },
+      }));
     });
   }
   document.querySelectorAll('.return-photos').forEach(input => {
+    input.addEventListener('click', (e) => {
+      if (hasReturnUploading()) {
+        e.preventDefault();
+        Utils.showToast('照片正在上传，请稍候', 'info');
+      }
+    });
     input.addEventListener('change', () => {
       const idx = input.dataset.idx;
       if (!_returnPhotos[idx]) _returnPhotos[idx] = [];
-      for (const f of input.files) _returnPhotos[idx].push(f);
+      const nextEntries = Array.from(input.files).map((file) => {
+        const entry = Utils.createUploadPreviewEntry(file);
+        entry.stageToken = null;
+        entry.uploading = true;
+        return entry;
+      });
+      _returnPhotos[idx].push(...nextEntries);
       input.value = '';
       renderReturnPhotoPreview(idx);
+      nextEntries.forEach(async (entry) => {
+        entry.error = false;
+        try {
+          const res = await Api.stageAttachment(entry.file, 'RETURN_ITEM', {
+            onProgress: (progress) => {
+              entry.progress = progress;
+              renderReturnPhotoPreview(idx);
+            },
+          });
+          entry.stageToken = res.data.stage_token;
+          entry.progress = 100;
+        } catch (e) {
+          entry.error = true;
+          Utils.showToast(e.message || '归还照片上传失败', 'error');
+        } finally {
+          entry.uploading = false;
+          renderReturnPhotoPreview(idx);
+        }
+      });
     });
   });
 
@@ -173,13 +211,13 @@ Router.register('return-submit', async (params) => {
       errEl.classList.add('hidden');
 
       const items = [];
-      const photoMap = {}; // itemIdx -> File[]
+      const photoMap = {}; // itemIdx -> { idx, files }
       document.querySelectorAll('.return-check:checked').forEach(cb => {
         const idx = cb.dataset.idx;
         const condition = document.querySelector(`.return-condition[data-idx="${idx}"]`).value;
         const desc = document.querySelector(`.return-damage-desc[data-idx="${idx}"]`)?.value?.trim() || null;
         const photos = _returnPhotos[idx] || [];
-        if (photos.length > 0) photoMap[items.length] = photos;
+        if (photos.length > 0) photoMap[items.length] = { idx, files: photos };
         items.push({
           borrow_order_item_id: cb.dataset.boiId,
           asset_id: cb.dataset.assetId,
@@ -205,8 +243,18 @@ Router.register('return-submit', async (params) => {
         errEl.classList.remove('hidden');
         return;
       }
+      if (hasReturnUploading()) {
+        Utils.showToast('照片正在上传，请稍候', 'info');
+        return;
+      }
+      if (hasReturnUploadFailed()) {
+        errEl.textContent = '有归还照片上传失败，请移除后重试';
+        errEl.classList.remove('hidden');
+        return;
+      }
 
       try {
+        isReturnUploading = true;
         submitBtn.disabled = true;
         submitBtn.textContent = '提交中...';
         const res = await Api.createReturnOrder({
@@ -216,20 +264,35 @@ Router.register('return-submit', async (params) => {
         });
         // Upload photos for each item
         const roItems = res.data.items || [];
-        for (const [itemIdx, files] of Object.entries(photoMap)) {
+        for (const [itemIdx, photoGroup] of Object.entries(photoMap)) {
           const ri = roItems[parseInt(itemIdx)];
           if (!ri) continue;
-          for (const f of files) {
-            try { await Api.uploadAttachment(f, 'RETURN_ITEM', 'ReturnOrderItem', ri.id); } catch (e) { console.warn('Photo upload failed:', e); }
+          const { idx, files } = photoGroup;
+          for (let index = 0; index < files.length; index += 1) {
+            const entry = files[index];
+            try {
+              if (!entry.stageToken) throw new Error('照片仍未上传完成');
+              await Api.finalizeStagedAttachment(entry.stageToken, 'ReturnOrderItem', ri.id);
+              entry.stageToken = null;
+            } catch (e) {
+              entry.error = true;
+              console.warn('Photo upload failed:', e);
+              throw e;
+            }
           }
         }
         Utils.showToast('归还单已提交，等待审批');
-        Router.navigate('return-detail', { id: res.data.id });
+        if (res.data.equipment_order_id) {
+          Router.navigate('order-detail', { id: res.data.equipment_order_id });
+        } else {
+          Router.navigate('return-detail', { id: res.data.id });
+        }
       } catch (e) {
+        isReturnUploading = false;
         errEl.textContent = e.message;
         errEl.classList.remove('hidden');
         submitBtn.disabled = false;
-        submitBtn.textContent = '提交归还单';
+        submitBtn.textContent = '确认提交归还';
       }
     });
   }
@@ -241,6 +304,7 @@ Router.register('return-detail', async (params) => {
   const app = document.getElementById('app');
   const user = Api.getUser();
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
+  const context = isAdmin ? resolveAdminDetailContext(params.from, 'my-orders') : null;
 
   let order = null;
   try {
@@ -254,7 +318,7 @@ Router.register('return-detail', async (params) => {
   const returnStatusMap = {
     PENDING_APPROVAL: { label: '待审核', class: 'chip--pending' },
     PARTIALLY_APPROVED: { label: '部分审批', class: 'chip--warning' },
-    APPROVED: { label: '已通过', class: 'chip--success' },
+    APPROVED: { label: '待入库', class: 'chip--warning' },
     REJECTED: { label: '已驳回', class: 'chip--danger' },
     COMPLETED: { label: '已完成', class: 'chip--success' },
   };
@@ -271,6 +335,7 @@ Router.register('return-detail', async (params) => {
   };
 
   const sm = returnStatusMap[order.status] || { label: order.status, class: '' };
+  const canStockIn = isAdmin && order.status === 'APPROVED';
 
   // Load photos for each item & timeline
   const itemPhotos = {};
@@ -291,11 +356,12 @@ Router.register('return-detail', async (params) => {
       <div class="page-header">
         <div class="page-header__info">
           <h1 class="page-header__title">${Utils.escapeHtml(order.order_no)}</h1>
-          <p class="page-header__desc">关联借用单：<a href="#borrow-detail?id=${order.borrow_order_id}">${Utils.escapeHtml(order.borrow_order_no || '-')}</a> · ${Utils.formatDateTime(order.created_at)}</p>
+          <p class="page-header__desc">关联借用单：<a href="#borrow-detail?id=${order.borrow_order_id}${isAdmin && context?.active ? `&from=${context.active}` : ''}">${Utils.escapeHtml(order.borrow_order_no || '-')}</a> · ${Utils.formatDateTime(order.created_at)}</p>
         </div>
         <div class="page-header__actions">
           <span class="chip ${sm.class}">${sm.label}</span>
-          <button class="btn btn--outline btn--sm" onclick="Router.navigate('my-returns')">返回列表</button>
+          ${canStockIn ? '<button id="return-stock-in-btn" class="btn btn--primary btn--sm">确认入库</button>' : ''}
+          <button class="btn btn--outline btn--sm" onclick="Router.navigate('${isAdmin ? context.backHref : 'my-orders'}')">${isAdmin ? context.backLabel : '返回列表'}</button>
         </div>
       </div>
 
@@ -373,17 +439,17 @@ Router.register('return-detail', async (params) => {
     </div>`;
 
   if (isAdmin) {
-    app.innerHTML = renderPcLayout('my-returns', detailHtml);
+      app.innerHTML = renderPcLayout(context.active, detailHtml);
   } else {
     const isMobile = window.innerWidth <= 768;
     if (isMobile) {
-      app.innerHTML = renderMobileUserShell('my-returns', detailHtml, {
-        backHref: 'my-returns',
-        backLabel: '返回归还单列表',
+      app.innerHTML = renderMobileUserShell('my-orders', detailHtml, {
+        backHref: 'my-orders',
+        backLabel: '返回我的订单',
         compact: true,
       });
     } else {
-      app.innerHTML = renderUserLayout('my-returns', detailHtml);
+      app.innerHTML = renderUserLayout('my-orders', detailHtml);
     }
   }
 
@@ -406,105 +472,23 @@ Router.register('return-detail', async (params) => {
       }, true);
     });
   });
+
+  const stockInBtn = document.getElementById('return-stock-in-btn');
+  if (stockInBtn) {
+    stockInBtn.addEventListener('click', () => {
+      _showApprovalModal('确认入库', `确认归还单 ${order.order_no} 已完成入库？`, async () => {
+        await Api.stockInReturnOrder(order.id);
+        Utils.showToast('已确认入库');
+        Router.navigate('return-detail', { id: order.id });
+      });
+    });
+  }
 });
 
 
 // ===== My Return Orders List =====
 Router.register('my-returns', async (params) => {
-  const app = document.getElementById('app');
-  const user = Api.getUser();
-  const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
-  const page = parseInt(params.page) || 1;
-  const statusFilter = params.status || '';
-
-  let orders = [], total = 0;
-  try {
-    const qp = { page, page_size: 20, mine: !isAdmin };
-    if (statusFilter) qp.status = statusFilter;
-    const res = await Api.listReturnOrders(qp);
-    orders = res.data.items;
-    total = res.data.total;
-  } catch (e) { console.error(e); }
-
-  const returnStatusMap = {
-    PENDING_APPROVAL: { label: '待审核', class: 'chip--pending' },
-    PARTIALLY_APPROVED: { label: '部分审批', class: 'chip--warning' },
-    APPROVED: { label: '已通过', class: 'chip--success' },
-    REJECTED: { label: '已驳回', class: 'chip--danger' },
-    COMPLETED: { label: '已完成', class: 'chip--success' },
-  };
-
-  if (isAdmin) {
-    const tableRows = orders.map(o => {
-      const sm = returnStatusMap[o.status] || { label: o.status, class: '' };
-      return `<tr>
-        <td><a href="#return-detail?id=${o.id}" style="font-weight:500;">${Utils.escapeHtml(o.order_no)}</a></td>
-        <td>${Utils.escapeHtml(o.borrow_order_no || '-')}</td>
-        <td>${Utils.escapeHtml(o.applicant_name || '-')}</td>
-        <td>${o.item_count} 件</td>
-        <td><span class="chip ${sm.class}">${sm.label}</span></td>
-        <td>${Utils.formatDateTime(o.created_at)}</td>
-      </tr>`;
-    }).join('');
-
-    const mainContent = `
-      <div class="page-header">
-        <div class="page-header__info">
-          <h1 class="page-header__title">归还单管理</h1>
-          <p class="page-header__desc">共 ${total} 条记录</p>
-        </div>
-      </div>
-      <div class="flex gap-md" style="margin-bottom:4px;">
-        <select id="return-status-filter" class="form-select" style="width:160px;">
-          <option value="">全部状态</option>
-          ${Object.entries(returnStatusMap).map(([k, v]) => `<option value="${k}" ${statusFilter === k ? 'selected' : ''}>${v.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="card" style="padding:0;overflow:hidden;">
-        <div class="table-wrapper">
-          <table class="data-table">
-            <thead><tr><th>归还单号</th><th>借用单号</th><th>申请人</th><th>数量</th><th>状态</th><th>创建时间</th></tr></thead>
-            <tbody>${tableRows || '<tr><td colspan="6"><div class="empty-state">暂无记录</div></td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>`;
-    app.innerHTML = renderPcLayout('my-returns', mainContent);
-
-    document.getElementById('return-status-filter').addEventListener('change', (e) => {
-      Router.navigate('my-returns', { status: e.target.value });
-    });
-  } else {
-    const isMobile = window.innerWidth <= 768;
-    const userBody = `
-      <h1 style="font-size:1.5rem;margin-bottom:16px;">我的归还单</h1>
-      <div class="asset-grid">
-        ${orders.length === 0 ? '<div class="empty-state" style="grid-column:1/-1;"><p>暂无归还单</p></div>' :
-          orders.map(o => {
-            const sm = returnStatusMap[o.status] || { label: o.status, class: '' };
-            return `
-              <div class="asset-card" data-id="${o.id}" style="cursor:pointer;">
-                <div class="asset-card__header">
-                  <div>
-                    <div class="asset-card__title">${Utils.escapeHtml(o.order_no)}</div>
-                    <div class="asset-card__code">${o.item_count} 件 · 借用单 ${Utils.escapeHtml(o.borrow_order_no || '-')}</div>
-                  </div>
-                  <span class="chip ${sm.class}">${sm.label}</span>
-                </div>
-                <div class="asset-card__meta">${Utils.formatDateTime(o.created_at)}</div>
-              </div>`;
-          }).join('')}
-      </div>`;
-
-    if (isMobile) {
-      app.innerHTML = renderMobileUserShell('my-returns', userBody, { showBottomNav: true });
-    } else {
-      app.innerHTML = renderUserLayout('my-returns', userBody);
-    }
-
-    document.querySelectorAll('.asset-card[data-id]').forEach(card => {
-      card.addEventListener('click', () => Router.navigate('return-detail', { id: card.dataset.id }));
-    });
-  }
+  Router.navigate('my-orders', params || {});
 });
 
 
@@ -512,11 +496,40 @@ Router.register('my-returns', async (params) => {
 Router.register('return-approvals', async (params) => {
   const app = document.getElementById('app');
   const page = parseInt(params.page) || 1;
-  const statusFilter = params.status || 'PENDING';
+  const statusFilter = params.status || (params.history === '1' ? 'ALL' : 'PENDING');
+  const isMobile = window.innerWidth <= 768;
+
+  const returnApprovalStatusMeta = {
+    PENDING: { label: '待审批', desc: '待处理归还审批任务' },
+    PENDING_STOCK_IN: { label: '待入库', desc: '查看审批已通过、等待确认入库的归还单' },
+    COMPLETED: { label: '已完成', desc: '查看已完成入库的归还记录' },
+    ALL: { label: '全部', desc: '查看全部归还审批记录' },
+    REJECTED: { label: '已驳回', desc: '查看已驳回归还审批记录' },
+  };
+
+  function buildReturnApprovalQuery(currentStatus) {
+    const query = { page, page_size: 20 };
+    if (currentStatus === 'PENDING') {
+      query.status = 'PENDING';
+      return query;
+    }
+    if (currentStatus === 'ALL') {
+      return query;
+    }
+    query.status = currentStatus;
+    return query;
+  }
+
+  function buildReturnApprovalParams(currentStatus, currentPage = 1) {
+    const nextParams = {};
+    if (currentStatus && currentStatus !== 'PENDING') nextParams.status = currentStatus;
+    if (currentPage > 1) nextParams.page = currentPage;
+    return nextParams;
+  }
 
   let tasks = [], total = 0;
   try {
-    const res = await Api.listReturnApprovalTasks({ page, page_size: 20, status: statusFilter });
+    const res = await Api.listReturnApprovalTasks(buildReturnApprovalQuery(statusFilter));
     tasks = res.data.items;
     total = res.data.total;
   } catch (e) { console.error(e); }
@@ -526,6 +539,13 @@ Router.register('return-approvals', async (params) => {
     APPROVED: { label: '已通过', class: 'chip--success' },
     REJECTED: { label: '已驳回', class: 'chip--danger' },
   };
+  const returnStatusMap = {
+    PENDING_APPROVAL: { label: '待审核', class: 'chip--pending' },
+    PARTIALLY_APPROVED: { label: '部分审批', class: 'chip--warning' },
+    APPROVED: { label: '待入库', class: 'chip--warning' },
+    REJECTED: { label: '已驳回', class: 'chip--danger' },
+    COMPLETED: { label: '已完成', class: 'chip--success' },
+  };
   const conditionMap = {
     GOOD: { label: '完好', class: 'chip--stock' },
     DAMAGED: { label: '损坏', class: 'chip--damaged' },
@@ -533,44 +553,188 @@ Router.register('return-approvals', async (params) => {
     FULL_LOSS: { label: '完全丢失', class: 'chip--lost' },
   };
 
+  async function openReturnApprovalPanel(task) {
+    const [orderRes, timelineRes] = await Promise.all([
+      Api.getReturnOrder(task.return_order_id),
+      Api.getOrderTimeline(task.return_order_id).catch(() => ({ data: [] })),
+    ]);
+    const order = orderRes.data;
+    const timelineEvents = timelineRes.data || [];
+    const user = Api.getUser();
+    const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
+    const sm = returnStatusMap[order.status] || { label: order.status, class: '' };
+    const currentTask = (order.approval_tasks || []).find(t => t.id === task.id) || task;
+    const currentTaskMeta = taskStatusMap[currentTask.status] || { label: currentTask.status, class: '' };
+    const canApproveTask = isAdmin && currentTask.status === 'PENDING' && (currentTask.approver_id === user.id || user.role === 'SUPER_ADMIN');
+    const canStockIn = isAdmin && order.status === 'APPROVED';
+
+    const photosByItem = {};
+    await Promise.all((order.items || []).map(async (item) => {
+      try {
+        const res = await Api.listAttachments({ related_type: 'ReturnOrderItem', related_id: item.id, photo_type: 'RETURN_ITEM' });
+        photosByItem[item.id] = res.data || [];
+      } catch {
+        photosByItem[item.id] = [];
+      }
+    }));
+
+    const itemRows = (order.items || []).map(item => {
+      const cm = conditionMap[item.condition] || { label: item.condition, class: '' };
+      const photos = photosByItem[item.id] || [];
+      return `
+        <div class="approval-panel__item approval-panel__item--stack">
+          <div class="approval-panel__item-main">
+            <div class="approval-panel__item-title">${Utils.escapeHtml(item.asset_name_snapshot)}</div>
+            <div class="approval-panel__item-code">${Utils.escapeHtml(item.asset_code_snapshot)}</div>
+          </div>
+          <div class="approval-panel__item-meta">
+            <span>${Utils.escapeHtml(item.admin_name_snapshot || '-')}</span>
+            <span><span class="chip ${cm.class}">${cm.label}</span></span>
+          </div>
+          ${item.damage_description ? `<div class="approval-panel__item-note">说明：${Utils.escapeHtml(item.damage_description)}</div>` : ''}
+          <div class="photo-gallery">
+            ${photos.length > 0
+              ? photos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')" data-no-card-nav="true">`).join('')
+              : '<span class="text-xs text-muted">无照片</span>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const bodyHtml = `
+      <div class="approval-panel__section">
+        <div class="approval-panel__grid">
+          <div class="approval-panel__field"><span class="approval-panel__label">申请人</span><span class="approval-panel__value">${Utils.escapeHtml(order.applicant_name || '-')}</span></div>
+          <div class="approval-panel__field"><span class="approval-panel__label">创建时间</span><span class="approval-panel__value">${Utils.formatDateTime(order.created_at)}</span></div>
+          <div class="approval-panel__field"><span class="approval-panel__label">关联借出单</span><span class="approval-panel__value">${Utils.escapeHtml(order.borrow_order_no || '-')}</span></div>
+          <div class="approval-panel__field"><span class="approval-panel__label">当前任务</span><span class="approval-panel__value"><span class="chip ${currentTaskMeta.class}">${currentTaskMeta.label}</span></span></div>
+          <div class="approval-panel__field"><span class="approval-panel__label">器材数量</span><span class="approval-panel__value">${order.item_count} 件</span></div>
+          <div class="approval-panel__field"><span class="approval-panel__label">归还状态</span><span class="approval-panel__value"><span class="chip ${sm.class}">${sm.label}</span></span></div>
+        </div>
+        ${order.remark ? `<div class="approval-panel__note"><span class="approval-panel__label">备注</span><div class="approval-panel__note-body">${Utils.escapeHtml(order.remark)}</div></div>` : ''}
+      </div>
+      <div class="approval-panel__section">
+        <h4 class="approval-panel__section-title">归还器材</h4>
+        <div class="approval-panel__list">${itemRows}</div>
+      </div>
+      <div class="approval-panel__section">
+        <h4 class="approval-panel__section-title">审批进度</h4>
+        <div class="stack--sm">
+          ${(order.approval_tasks || []).map(t => {
+            const ts = taskStatusMap[t.status] || { label: t.status, class: '' };
+            return `
+              <div class="user-row">
+                <div class="user-row__info">
+                  <span class="user-row__name">${Utils.escapeHtml(t.approver_name || '-')}</span>
+                  <span class="user-row__meta">${t.item_ids.length} 件设备 · ${t.decided_at ? Utils.formatDateTime(t.decided_at) : '待处理'}</span>
+                  ${t.comment ? `<span class="user-row__meta">${Utils.escapeHtml(t.comment)}</span>` : ''}
+                </div>
+                <span class="chip ${ts.class}">${ts.label}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+      <div class="approval-panel__section">
+        <h4 class="approval-panel__section-title">完整时间线</h4>
+        ${renderTimelineHtml(timelineEvents)}
+      </div>
+    `;
+
+    const footerHtml = `
+      <button class="btn btn--outline approval-panel-close-btn" type="button">关闭</button>
+      ${canStockIn ? '<button class="btn btn--primary approval-panel-stockin-btn" type="button">确认入库</button>' : ''}
+      ${canApproveTask ? '<button class="btn btn--danger approval-panel-reject-btn" type="button">驳回</button>' : ''}
+      ${canApproveTask ? '<button class="btn btn--primary approval-panel-approve-btn" type="button">通过</button>' : ''}
+    `;
+
+    const panel = openApprovalPanel({
+      title: order.order_no,
+      subtitle: `申请人：${Utils.escapeHtml(order.applicant_name || '-')} · ${Utils.formatDateTime(order.created_at)}`,
+      statusLabel: sm.label,
+      statusClass: sm.class,
+      bodyHtml,
+      footerHtml,
+    });
+
+    panel.overlay.querySelector('.approval-panel-close-btn')?.addEventListener('click', panel.close);
+    panel.overlay.querySelector('.approval-panel-approve-btn')?.addEventListener('click', () => {
+      _showApprovalModal('通过归还审批', '确认归还设备状态无误？', async (comment) => {
+        await Api.approveReturnTask(currentTask.id, comment);
+        panel.close();
+        Utils.showToast('已通过');
+        Router.navigate('return-approvals', { status: statusFilter, page });
+      });
+    });
+    panel.overlay.querySelector('.approval-panel-reject-btn')?.addEventListener('click', () => {
+      _showApprovalModal('驳回归还审批', '请填写驳回原因：', async (comment) => {
+        await Api.rejectReturnTask(currentTask.id, comment);
+        panel.close();
+        Utils.showToast('已驳回');
+        Router.navigate('return-approvals', { status: statusFilter, page });
+      }, true);
+    });
+    panel.overlay.querySelector('.approval-panel-stockin-btn')?.addEventListener('click', () => {
+      _showApprovalModal('确认入库', `确认归还单 ${order.order_no} 已完成入库？`, async () => {
+        await Api.stockInReturnOrder(order.id);
+        panel.close();
+        Utils.showToast('已确认入库');
+        Router.navigate('return-approvals', { status: statusFilter, page });
+      });
+    });
+  }
+
   const taskCards = tasks.map(t => {
-    const ts = taskStatusMap[t.status] || { label: t.status, class: '' };
+    const orderStatusMeta = returnStatusMap[t.return_order_status] || null;
+    const ts = orderStatusMeta || taskStatusMap[t.status] || { label: t.status, class: '' };
     const itemRows = (t.item_details || []).map(d => {
       const cm = conditionMap[d.condition] || { label: d.condition, class: '' };
-      const photoHtml = (d.photos || []).map(p =>
-        `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" style="width:48px;height:48px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
-      ).join(' ');
+      const primaryPhoto = (d.photos || [])[0];
+      const photoHtml = primaryPhoto
+        ? `<img src="/uploads/${Utils.escapeHtml(primaryPhoto.thumb_path || primaryPhoto.file_path)}" class="approval-item-row__image photo-gallery__img" data-no-card-nav="true" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(primaryPhoto.file_path)}')">`
+        : `<div class="approval-item-row__placeholder" data-no-card-nav="true">${Utils.svgIcon('box')}</div>`;
+      const extraPhotoCount = Math.max(0, (d.photos || []).length - 1);
       return `
-        <div style="padding:8px 0;border-bottom:1px solid var(--panel);">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <span class="text-sm" style="font-weight:500;">${Utils.escapeHtml(d.asset_code_snapshot)}</span>
-              <span class="text-sm text-muted" style="margin-left:8px;">${Utils.escapeHtml(d.asset_name_snapshot)}</span>
-            </div>
-            <span class="chip ${cm.class}">${cm.label}</span>
+        <div class="approval-item-row">
+          <div class="approval-item-row__media" data-no-card-nav="true">
+            ${photoHtml}
+            ${extraPhotoCount > 0 ? `<span class="approval-item-row__count" data-no-card-nav="true">+${extraPhotoCount}</span>` : ''}
           </div>
-          ${d.damage_description ? `<div class="text-xs text-muted" style="margin-top:4px;">损坏描述：${Utils.escapeHtml(d.damage_description)}</div>` : ''}
-          ${photoHtml ? `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">${photoHtml}</div>` : ''}
+          <div class="approval-item-row__body">
+            <div class="approval-item-row__header">
+              <div>
+                <div class="approval-item-row__code">${Utils.escapeHtml(d.asset_code_snapshot)}</div>
+                <div class="approval-item-row__name">${Utils.escapeHtml(d.asset_name_snapshot)}</div>
+              </div>
+              <span class="chip ${cm.class}">${cm.label}</span>
+            </div>
+            ${d.damage_description ? `<div class="approval-item-row__damage">损坏描述：${Utils.escapeHtml(d.damage_description)}</div>` : ''}
+          </div>
         </div>`;
     }).join('');
 
     return `
-      <div class="card" style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="card approval-task-card approval-task-card--interactive ${t.status === 'PENDING' ? '' : 'approval-task-card--history'}" data-task-id="${t.id}">
+        <div class="approval-task-card__head">
           <div>
-            <a href="#return-detail?id=${t.return_order_id}" style="font-weight:600;font-size:0.9375rem;">${Utils.escapeHtml(t.return_order_no || '查看归还单')}</a>
-            <span class="text-sm text-muted" style="margin-left:12px;">申请人：${Utils.escapeHtml(t.applicant_name || '-')}</span>
+            <div class="approval-task-card__order">${Utils.escapeHtml(t.return_order_no || '查看归还单')}</div>
+            <div class="approval-task-card__applicant">申请人：${Utils.escapeHtml(t.applicant_name || '-')}</div>
           </div>
           <span class="chip ${ts.class}">${ts.label}</span>
         </div>
-        <div style="background:var(--panel-alt);border-radius:var(--radius-input);padding:10px 14px;margin-bottom:12px;">
-          <div class="text-xs text-muted" style="margin-bottom:6px;">归还设备 (${t.item_details?.length || t.item_ids.length} 件)</div>
-          ${itemRows || '<div class="text-sm text-muted">加载中...</div>'}
+        <div class="approval-task-card__summary">
+          <span class="approval-task-card__stamp">${Utils.formatDateTime(t.created_at)}</span>
+          <span class="text-xs text-muted">${t.item_details?.length || t.item_ids.length} 件归还设备</span>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span class="text-xs text-muted">${Utils.formatDateTime(t.created_at)}</span>
-          <div style="display:flex;gap:8px;align-items:center;">
-            ${t.comment ? `<span class="text-xs text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${Utils.escapeHtml(t.comment)}</span>` : ''}
+        <div class="approval-task-card__items">
+          <div class="approval-task-card__items-label">归还设备</div>
+          <div class="approval-task-card__mini-list">
+            ${itemRows || '<div class="text-sm text-muted">加载中...</div>'}
+          </div>
+        </div>
+        <div class="approval-task-card__footer">
+          ${t.comment ? `<div class="approval-task-card__comment">审批意见：${Utils.escapeHtml(t.comment)}</div>` : ''}
+          <div class="approval-task-card__action-group">
             ${t.status === 'PENDING' ? `
               <button class="btn btn--primary btn--sm rt-approve-btn" data-id="${t.id}">通过</button>
               <button class="btn btn--danger btn--sm rt-reject-btn" data-id="${t.id}">驳回</button>
@@ -584,23 +748,36 @@ Router.register('return-approvals', async (params) => {
     <div class="page-header">
       <div class="page-header__info">
         <h1 class="page-header__title">归还审批</h1>
-        <p class="page-header__desc">共 ${total} 条任务</p>
+        <p class="page-header__desc">${returnApprovalStatusMeta[statusFilter]?.desc || '查看归还审批记录'} · 共 ${total} 条</p>
       </div>
     </div>
-    <div class="flex gap-md" style="margin-bottom:12px;">
-      <select id="rt-status-filter" class="form-select" style="width:140px;">
+    <div class="card approval-filter-card">
+      <div class="approval-filter-card__controls">
+      <select id="rt-status-filter" class="form-select approval-filter-card__select">
         <option value="PENDING" ${statusFilter === 'PENDING' ? 'selected' : ''}>待审批</option>
-        <option value="APPROVED" ${statusFilter === 'APPROVED' ? 'selected' : ''}>已通过</option>
+        <option value="PENDING_STOCK_IN" ${statusFilter === 'PENDING_STOCK_IN' ? 'selected' : ''}>待入库</option>
+        <option value="COMPLETED" ${statusFilter === 'COMPLETED' ? 'selected' : ''}>已完成</option>
+        <option value="ALL" ${statusFilter === 'ALL' ? 'selected' : ''}>全部</option>
         <option value="REJECTED" ${statusFilter === 'REJECTED' ? 'selected' : ''}>已驳回</option>
-        <option value="" ${!statusFilter ? 'selected' : ''}>全部</option>
       </select>
+      </div>
     </div>
-    ${taskCards || '<div class="empty-state" style="padding:40px;">暂无审批任务</div>'}`;
+    ${taskCards || '<div class="empty-state approval-page__empty">暂无审批任务</div>'}`;
 
-  app.innerHTML = renderPcLayout('return-approvals', mainContent);
+  app.innerHTML = isMobile ? renderMobileAdminShell('return-approvals', mainContent) : renderPcLayout('return-approvals', mainContent);
 
   document.getElementById('rt-status-filter').addEventListener('change', (e) => {
-    Router.navigate('return-approvals', { status: e.target.value });
+    Router.navigate('return-approvals', buildReturnApprovalParams(e.target.value));
+  });
+
+  const taskMap = Object.fromEntries(tasks.map(task => [String(task.id), task]));
+  bindClickableApprovalCards('.approval-task-card', (card) => {
+    const task = taskMap[card.dataset.taskId];
+    if (!task) return;
+    openReturnApprovalPanel(task).catch((error) => {
+      console.error('打开归还审批详情失败:', error);
+      Utils.showToast(error?.message || '打开归还审批详情失败', 'error');
+    });
   });
 
   // Approve with modal (reuses _showApprovalModal from borrow.js)
@@ -609,7 +786,7 @@ Router.register('return-approvals', async (params) => {
       _showApprovalModal('通过归还审批', '确认归还设备状态无误？', async (comment) => {
         await Api.approveReturnTask(btn.dataset.id, comment);
         Utils.showToast('已通过');
-        Router.navigate('return-approvals', { status: statusFilter });
+        Router.navigate('return-approvals', buildReturnApprovalParams(statusFilter, page));
       });
     });
   });
@@ -619,7 +796,7 @@ Router.register('return-approvals', async (params) => {
       _showApprovalModal('驳回归还审批', '请填写驳回原因：', async (comment) => {
         await Api.rejectReturnTask(btn.dataset.id, comment);
         Utils.showToast('已驳回');
-        Router.navigate('return-approvals', { status: statusFilter });
+        Router.navigate('return-approvals', buildReturnApprovalParams(statusFilter, page));
       }, true);
     });
   });

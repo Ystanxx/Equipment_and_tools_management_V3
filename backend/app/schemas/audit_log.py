@@ -11,6 +11,7 @@ class AuditLogOut(BaseModel):
     action: str
     target_type: Optional[str] = None
     target_id: Optional[UUID] = None
+    equipment_order_id: Optional[UUID] = None
     order_id: Optional[UUID] = None
     description: Optional[str] = None
     snapshot: Optional[dict] = None

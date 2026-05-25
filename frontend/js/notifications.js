@@ -2,6 +2,8 @@
 Router.register('notifications', async (params) => {
   const app = document.getElementById('app');
   const user = Api.getUser();
+  const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
+  const isMobile = window.innerWidth <= 768;
   const page = parseInt(params.page) || 1;
   const readFilter = params.is_read; // 'true', 'false', or undefined
 
@@ -38,24 +40,24 @@ Router.register('notifications', async (params) => {
     : notifications.map(n => {
       const typeLabel = typeLabels[n.notification_type] || n.notification_type;
       const typeColor = typeColors[n.notification_type] || '';
-      const readClass = n.is_read ? 'notification-card--read' : '';
+      const readClass = n.is_read ? 'notification-card--read' : 'notification-card--unread';
       const relatedLink = _buildRelatedLink(n);
       return `
-        <div class="card notification-card ${readClass}" data-id="${n.id}" style="padding:14px 18px;${n.is_read ? 'opacity:0.7;' : 'border-left:3px solid var(--accent);'}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
-            <div style="flex:1;min-width:0;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                <span class="chip ${typeColor}" style="font-size:11px;">${typeLabel}</span>
-                <strong style="font-size:14px;">${Utils.escapeHtml(n.title)}</strong>
+        <div class="card notification-card ${readClass}" data-id="${n.id}">
+          <div class="notification-card__layout">
+            <div class="notification-card__main">
+              <div class="notification-card__title-row">
+                <span class="chip ${typeColor} notification-card__type">${typeLabel}</span>
+                <strong class="notification-card__title">${Utils.escapeHtml(n.title)}</strong>
                 ${n.is_read ? '' : '<span class="chip chip--danger" style="font-size:10px;">未读</span>'}
               </div>
-              <p class="text-sm" style="margin:4px 0 6px;color:var(--text-secondary);">${Utils.escapeHtml(n.content)}</p>
-              <div style="display:flex;align-items:center;gap:12px;">
+              <p class="notification-card__content">${Utils.escapeHtml(n.content)}</p>
+              <div class="notification-card__meta-row">
                 <span class="text-xs text-muted">${Utils.formatDateTime(n.created_at)}</span>
                 ${relatedLink}
               </div>
             </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;">
+            <div class="notification-card__actions">
               ${n.is_read ? '' : `<button class="btn btn--outline btn--sm mark-read-btn" data-id="${n.id}">标记已读</button>`}
             </div>
           </div>
@@ -74,28 +76,36 @@ Router.register('notifications', async (params) => {
   const totalPages = Math.ceil(total / 20);
 
   const mainContent = `
-    <div class="page-header">
+    <div class="page-header notification-page__header">
       <div class="page-header__info">
         <h1 class="page-header__title">通知中心</h1>
         <p class="page-header__desc">共 ${total} 条通知${_unreadNotificationCount > 0 ? `，${_unreadNotificationCount} 条未读` : ''}</p>
       </div>
-      <div class="page-header__actions">
+      <div class="page-header__actions notification-page__actions">
         ${_unreadNotificationCount > 0 ? '<button class="btn btn--primary btn--sm" id="mark-all-read-btn">全部标记已读</button>' : ''}
       </div>
     </div>
-    <div class="flex gap-sm" style="margin-bottom:12px;">
+    <div class="notification-page__filters">
       ${filterBtns}
     </div>
-    <div class="stack--sm">
+    <div class="notification-page__list">
       ${notificationCards}
     </div>
-    ${totalPages > 1 ? `<div style="text-align:center;margin-top:16px;">
+    ${totalPages > 1 ? `<div class="notification-page__pagination">
       ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('notifications',{page:${page-1},is_read:'${readFilter || ''}'})">上一页</button>` : ''}
       <span class="text-sm text-muted" style="margin:0 12px;">第 ${page} / ${totalPages} 页</span>
       ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('notifications',{page:${page+1},is_read:'${readFilter || ''}'})">下一页</button>` : ''}
     </div>` : ''}`;
 
-  app.innerHTML = renderPcLayout('notifications', mainContent);
+  if (isMobile && !isAdmin) {
+    app.innerHTML = renderMobileUserShell('notifications', mainContent, { showBottomNav: true });
+  } else if (isMobile) {
+    app.innerHTML = renderMobileAdminShell('notifications', mainContent);
+  } else if (isAdmin) {
+    app.innerHTML = renderPcLayout('notifications', mainContent);
+  } else {
+    app.innerHTML = renderUserLayout('notifications', mainContent);
+  }
 
   // Event: mark single notification as read
   document.querySelectorAll('.mark-read-btn').forEach(btn => {

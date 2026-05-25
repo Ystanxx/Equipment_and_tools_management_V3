@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_super_admin
 from app.models.user import User
-from app.schemas.user import UserOut, RoleUpdateRequest, StatusUpdateRequest
+from app.schemas.user import UserOut, RoleUpdateRequest, StatusUpdateRequest, UserProfileUpdateRequest
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import user_service
 from app.utils.enums import UserRole, UserStatus
@@ -63,3 +63,21 @@ def update_status(
 ):
     user = user_service.update_user_status(db, user_id, body.status, current_user)
     return ResponseSchema(data=UserOut.model_validate(user), message="状态已更新")
+
+
+@router.put("/{user_id}/profile", response_model=ResponseSchema[UserOut])
+def update_profile(
+    user_id: uuid.UUID,
+    body: UserProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    user = user_service.update_user_profile(
+        db,
+        user_id,
+        body.username,
+        body.full_name,
+        body.email,
+        current_user,
+    )
+    return ResponseSchema(data=UserOut.model_validate(user), message="资料已更新")

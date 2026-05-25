@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.core.database import Base
-from app.utils.enums import AssetType, AssetStatus
+from app.utils.enums import AssetStatus
 
 
 class Asset(Base):
@@ -15,7 +15,7 @@ class Asset(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    asset_type: Mapped[AssetType] = mapped_column(SAEnum(AssetType, name="asset_type", create_constraint=True), nullable=False)
+    asset_type_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("asset_types.id"), nullable=True)
     category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("asset_categories.id"), nullable=True)
     location_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)
     admin_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
@@ -31,6 +31,7 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    asset_type_option = relationship("AssetTypeOption", lazy="joined")
     category = relationship("AssetCategory", lazy="joined")
     location = relationship("StorageLocation", lazy="joined")
     admin = relationship("User", foreign_keys=[admin_id], lazy="joined")

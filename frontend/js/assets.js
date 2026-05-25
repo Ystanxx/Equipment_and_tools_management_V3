@@ -2,8 +2,34 @@
 Router.register('asset-list', async (params) => {
   const app = document.getElementById('app');
   const user = Api.getUser();
-  const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
-  const isMobile = !isAdmin; // Users get mobile view; admins get PC view
+
+  const page = parseInt(params.page) || 1;
+  const pageSize = [10, 20, 50, 100].includes(parseInt(params.page_size, 10)) ? parseInt(params.page_size, 10) : 20;
+  const keyword = params.keyword || '';
+  const statusFilter = params.status || '';
+
+  let assets = [], total = 0;
+  try {
+    const qp = { page, page_size: pageSize };
+    if (keyword) qp.keyword = keyword;
+    if (statusFilter) qp.status = statusFilter;
+    const res = await Api.listAssets(qp);
+    assets = res.data.items;
+    total = res.data.total;
+  } catch (e) {
+    console.error(e);
+  }
+
+  renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user);
+});
+
+Router.register('managed-assets', async (params) => {
+  const app = document.getElementById('app');
+  const user = Api.getUser();
+  if (!user || (user.role !== 'ASSET_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+    Router.navigate('asset-list');
+    return;
+  }
 
   const page = parseInt(params.page) || 1;
   const pageSize = [10, 20, 50, 100].includes(parseInt(params.page_size, 10)) ? parseInt(params.page_size, 10) : 20;
@@ -23,72 +49,107 @@ Router.register('asset-list', async (params) => {
     console.error(e);
   }
 
-  if (isAdmin) {
-    renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user);
-  } else {
-    renderUserAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user);
+  renderManagedAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user);
+  if (typeof markManagedAssetsSeen === 'function') {
+    markManagedAssetsSeen();
   }
 });
 
-function renderUserAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user) {
+function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user) {
   const isMobile = window.innerWidth <= 768;
+  const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
   const stockCount = assets.filter(a => a.status === 'IN_STOCK').length;
   const maxItems = Api.getSystemConfig('borrow_order_max_items', 20);
   const totalPages = Math.ceil(total / pageSize);
+  const getDisplayStatus = (asset) => asset.display_status || asset.status;
+
+  const renderAssetMedia = (asset) => {
+    const previewSrc = asset.preview_thumb_path || asset.preview_file_path;
+    if (previewSrc) {
+      return `<div class="asset-card__media">
+        <img src="/uploads/${Utils.escapeHtml(previewSrc)}" alt="${Utils.escapeHtml(asset.name)}" loading="lazy">
+      </div>`;
+    }
+    return `<div class="asset-card__media asset-card__media--placeholder">
+      <div class="asset-card__media-icon">${Utils.svgIcon('box')}</div>
+      <span class="asset-card__media-text">暂无图片</span>
+    </div>`;
+  };
 
   const bodyHtml = `
-    <div class="flex-between" style="margin-bottom:20px;">
-      <div>
-        <h1 style="font-size:1.5rem;">设备列表</h1>
-        <p class="text-xs text-muted">共 ${total} 件设备 · ${stockCount} 件在库可借</p>
+    <div class="borrow-browser borrow-browser--pc">
+      <div class="borrow-browser__header">
+        <div>
+          <h1 style="font-size:1.5rem;">器材借用</h1>
+          <p class="text-xs text-muted">共 ${total} 件器材 · ${stockCount} 件在库可借</p>
+        </div>
+        <div class="borrow-browser__summary">
+          <span class="tag">总计 ${total} 件</span>
+          <span class="chip chip--stock">在库 ${stockCount} 件</span>
+        </div>
       </div>
-    </div>
 
-    <div class="flex gap-md" style="margin-bottom:16px;align-items:center;flex-wrap:wrap;">
-      <div class="search-bar" style="flex:1 1 100%;min-width:0;">
-        ${Utils.svgIcon('search')}
-        <input type="text" id="user-search" placeholder="搜索编号、名称、分类" value="${Utils.escapeHtml(keyword)}">
-      </div>
-      <select id="user-page-size" class="form-select" style="width:132px;max-width:100%;margin-left:auto;flex:0 0 auto;">
-        ${[10, 20, 50, 100].map(size => `<option value="${size}" ${pageSize === size ? 'selected' : ''}>每页 ${size} 条</option>`).join('')}
-      </select>
-    </div>
-
-    <div class="chip-row" style="margin-bottom:20px;">
-      <span class="chip ${!statusFilter ? 'chip--active' : 'chip--outline'}" data-status="">全部</span>
-      <span class="chip ${statusFilter === 'IN_STOCK' ? 'chip--active' : 'chip--outline'}" data-status="IN_STOCK">在库</span>
-      <span class="chip ${statusFilter === 'BORROWED' ? 'chip--active' : 'chip--outline'}" data-status="BORROWED">借出</span>
-    </div>
-
-    <div class="asset-grid">
-      ${assets.length === 0 ? '<div class="empty-state" style="grid-column:1/-1;"><p>暂无设备</p></div>' :
-        assets.map(a => `
-          <div class="asset-card" data-id="${a.id}">
-            <div class="asset-card__header">
-              <div>
-                <div class="asset-card__title">${Utils.escapeHtml(a.name)}</div>
-                <div class="asset-card__code">${Utils.escapeHtml(a.asset_code)}</div>
-              </div>
-              ${Utils.statusChip(a.status)}
-            </div>
-            <div class="asset-card__meta">${Utils.escapeHtml(a.category_name || '-')} · ${Utils.escapeHtml(a.location_name || '-')}</div>
-            <div class="asset-card__footer">
-              <span class="asset-card__meta">${Utils.escapeHtml(a.brand || '')} ${Utils.escapeHtml(a.model || '')}</span>
-              ${a.status === 'IN_STOCK' ? `<button class="btn btn--secondary btn--sm add-cart-btn" data-id="${a.id}" data-code="${Utils.escapeHtml(a.asset_code)}" data-name="${Utils.escapeHtml(a.name)}" data-loc="${Utils.escapeHtml(a.location_name || '')}">加入清单</button>` : ''}
-            </div>
+      <div class="card borrow-browser__surface">
+        <div class="borrow-browser__toolbar">
+          <div class="search-bar borrow-browser__search">
+            ${Utils.svgIcon('search')}
+            <input type="text" id="user-search" placeholder="搜索编号、名称、分类" value="${Utils.escapeHtml(keyword)}">
           </div>
-        `).join('')}
-    </div>
+          <select id="user-page-size" class="form-select borrow-browser__page-size">
+            ${[10, 20, 50, 100].map(size => `<option value="${size}" ${pageSize === size ? 'selected' : ''}>每页 ${size} 条</option>`).join('')}
+          </select>
+        </div>
 
-    ${totalPages > 1 ? `
-      <div class="flex-center gap-sm" style="margin-top:20px;">
-        ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">上一页</button>` : ''}
-        <span class="text-sm text-muted">${page} / ${totalPages}</span>
-        ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">下一页</button>` : ''}
-      </div>` : ''}`;
+        <div class="borrow-browser__filters borrow-browser__filters--card chip-row">
+          <span class="chip ${!statusFilter ? 'chip--active' : 'chip--outline'}" data-status="">全部</span>
+          <span class="chip ${statusFilter === 'IN_STOCK' ? 'chip--active' : 'chip--outline'}" data-status="IN_STOCK">在库</span>
+          <span class="chip ${statusFilter === 'BORROWED' ? 'chip--active' : 'chip--outline'}" data-status="BORROWED">借出</span>
+        </div>
+      </div>
 
-  if (isMobile) {
+      <div class="asset-grid asset-grid--borrow">
+        ${assets.length === 0 ? '<div class="empty-state" style="grid-column:1/-1;"><p>暂无可借器材</p></div>' :
+          assets.map(a => `
+            <div class="asset-card asset-card--borrow" data-id="${a.id}">
+              ${renderAssetMedia(a)}
+              <div class="asset-card__body">
+                <div class="asset-card__header">
+                  <div style="min-width:0;">
+                    <div class="asset-card__title">${Utils.escapeHtml(a.name)}</div>
+                    <div class="asset-card__code">${Utils.escapeHtml(a.asset_code)} · ${Utils.escapeHtml(a.asset_type_name || '未设置性质')}</div>
+                  </div>
+                  ${Utils.statusChip(getDisplayStatus(a))}
+                </div>
+                <div class="asset-card__meta-list">
+                  <div class="asset-card__meta"><span class="asset-card__meta-label">分类</span><span>${Utils.escapeHtml(a.category_name || '未分类')}</span></div>
+                  <div class="asset-card__meta"><span class="asset-card__meta-label">位置</span><span>${Utils.escapeHtml(a.location_name || '未设置位置')}</span></div>
+                  <div class="asset-card__meta"><span class="asset-card__meta-label">规格</span><span>${Utils.escapeHtml((`${a.brand || ''} ${a.model || ''}`).trim() || '暂无品牌 / 型号')}</span></div>
+                </div>
+                <div class="asset-card__footer">
+                  <span class="asset-card__availability ${a.status === 'IN_STOCK' ? 'asset-card__availability--stock' : 'asset-card__availability--disabled'}">${a.status === 'IN_STOCK' ? '在库可借' : '当前不可借'}</span>
+                  ${a.status === 'IN_STOCK'
+                    ? `<button class="btn btn--secondary btn--sm add-cart-btn" data-id="${a.id}" data-code="${Utils.escapeHtml(a.asset_code)}" data-name="${Utils.escapeHtml(a.name)}" data-loc="${Utils.escapeHtml(a.location_name || '')}">添加到借用单</button>`
+                    : `<button class="btn btn--outline btn--sm" disabled>${a.status === 'BORROWED' ? '已借出' : '不可借用'}</button>`}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+      </div>
+
+      ${totalPages > 1 ? `
+        <div class="flex-center gap-sm borrow-browser__pagination">
+          ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">上一页</button>` : ''}
+          <span class="text-sm text-muted">${page} / ${totalPages}</span>
+          ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">下一页</button>` : ''}
+        </div>` : ''}
+    </div>`;
+
+  if (isMobile && isAdmin) {
+    app.innerHTML = renderMobileAdminShell('asset-list', bodyHtml);
+  } else if (isMobile) {
     app.innerHTML = renderMobileUserShell('asset-list', bodyHtml, { showBottomNav: true });
+  } else if (isAdmin) {
+    app.innerHTML = renderPcLayout('asset-list', bodyHtml);
   } else {
     app.innerHTML = renderUserLayout('asset-list', bodyHtml);
   }
@@ -121,11 +182,11 @@ function renderUserAssetList(app, assets, total, page, pageSize, keyword, status
         location_name: btn.dataset.loc,
       });
       if (ok) {
-        Utils.showToast('已加入借用清单');
-        btn.textContent = '已加入';
+        Utils.showToast('已添加到借用单');
+        btn.textContent = '已添加';
         btn.disabled = true;
       } else {
-        Utils.showToast(`已在清单中或清单已满 (${maxItems})`, 'error');
+        Utils.showToast(`已在借用单中或借用单已满 (${maxItems})`, 'error');
       }
     });
   });
@@ -135,8 +196,19 @@ function renderUserAssetList(app, assets, total, page, pageSize, keyword, status
     card.style.cursor = 'pointer';
     card.addEventListener('click', (e) => {
       if (e.target.closest('button')) return;
-      Router.navigate('asset-detail', { id: card.dataset.id });
+      Router.navigate('asset-detail', { id: card.dataset.id, from: 'asset-list' });
     });
+  });
+}
+
+function renderManagedAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user) {
+  renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user, {
+    activeRoute: 'managed-assets',
+    title: '我的器材',
+    description: user.role === 'SUPER_ADMIN' ? '查看并维护全部器材' : '仅展示你负责维护的器材',
+    routeName: 'managed-assets',
+    createLabel: '新建器材',
+    showBorrower: true,
   });
 }
 
@@ -197,28 +269,51 @@ function showAssetInfoModal(title, message) {
   document.body.appendChild(overlay);
 }
 
-function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user) {
+function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user, options = {}) {
   const totalPages = Math.ceil(total / pageSize);
   const isSuper = user.role === 'SUPER_ADMIN';
   const isMobile = window.innerWidth <= 768;
+  const activeRoute = options.activeRoute || 'managed-assets';
+  const routeName = options.routeName || activeRoute;
+  const title = options.title || '我的器材';
+  const description = options.description || '查看并维护当前管理范围内的器材';
+  const createLabel = options.createLabel || '新建器材';
+  const showBorrower = Boolean(options.showBorrower);
 
   const tableRows = assets.map(a => `
-    <tr>
-      <td class="asset-table__code"><a href="#asset-detail?id=${a.id}" style="font-weight:500;">${Utils.escapeHtml(a.asset_code)}</a></td>
-      <td class="asset-table__name">${Utils.escapeHtml(a.name)}</td>
-      <td class="asset-table__type">${Utils.assetTypeMap[a.asset_type] || a.asset_type}</td>
+    <tr data-asset-id="${a.id}" tabindex="0" role="link" aria-label="查看${Utils.escapeHtml(a.name)}详情">
+      <td class="asset-table__name">
+        <div class="asset-table__cell-main">${Utils.escapeHtml(a.name)}</div>
+      </td>
+      <td class="asset-table__code">
+        <div class="asset-table__cell-sub asset-table__cell-sub--code">${Utils.escapeHtml(a.asset_code)}</div>
+      </td>
+      <td class="asset-table__type">${Utils.escapeHtml(a.asset_type_name || '-')}</td>
       <td class="asset-table__category">${Utils.escapeHtml(a.category_name || '-')}</td>
-      <td class="asset-table__status">${Utils.statusChip(a.status)}</td>
+      <td class="asset-table__status">${Utils.statusChip(a.display_status || a.status)}</td>
+      ${showBorrower ? `<td class="asset-table__borrower">${Utils.escapeHtml(a.borrower_name || '-')}</td>` : ''}
       <td class="asset-table__admin">${Utils.escapeHtml(a.admin_name || '-')}</td>
       <td class="asset-table__location">${Utils.escapeHtml(a.location_name || '-')}</td>
     </tr>
   `).join('');
 
+  const tableHead = `<tr>
+    <th class="asset-table__name">名称</th>
+    <th class="asset-table__code">编号</th>
+    <th class="asset-table__type">性质</th>
+    <th class="asset-table__category">分类</th>
+    <th class="asset-table__status">状态</th>
+    ${showBorrower ? '<th class="asset-table__borrower">借出人</th>' : ''}
+    <th class="asset-table__admin">管理员</th>
+    <th class="asset-table__location">位置</th>
+  </tr>`;
+  const columnCount = showBorrower ? 8 : 7;
+
   const headerClass = isMobile ? 'page-header asset-list-header asset-list-header--mobile' : 'page-header';
   const headerActions = isMobile
-    ? `<button class="btn btn--primary btn--sm asset-list-header__create" onclick="Router.navigate('asset-form')">${Utils.svgIcon('plus')} 新建工具</button>`
+    ? `<button class="btn btn--primary btn--sm asset-list-header__create" onclick="Router.navigate('asset-form',{from:'${activeRoute}'})">${Utils.svgIcon('plus')} ${createLabel}</button>`
     : `<span class="tag">共 ${total} 件</span>
-       <button class="btn btn--primary" onclick="Router.navigate('asset-form')">${Utils.svgIcon('plus')} 新建工具</button>`;
+       <button class="btn btn--primary" onclick="Router.navigate('asset-form',{from:'${activeRoute}'})">${Utils.svgIcon('plus')} ${createLabel}</button>`;
 
   const toolbarHtml = isMobile ? `
     <div class="asset-toolbar asset-toolbar--mobile">
@@ -240,19 +335,19 @@ function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFi
       </div>
     </div>`
     : `
-    <div class="flex gap-md" style="margin-bottom:4px;">
-      <div class="search-bar" style="flex:1;">
+    <div class="card asset-toolbar asset-toolbar--desktop asset-toolbar-panel">
+      <div class="search-bar asset-toolbar__search">
         ${Utils.svgIcon('search')}
         <input type="text" id="pc-asset-search" placeholder="搜索编号、名称" value="${Utils.escapeHtml(keyword)}">
       </div>
-      <select id="pc-status-filter" class="form-select" style="width:140px;">
+      <select id="pc-status-filter" class="form-select asset-toolbar__filter">
         <option value="">全部状态</option>
         <option value="IN_STOCK" ${statusFilter === 'IN_STOCK' ? 'selected' : ''}>在库</option>
         <option value="BORROWED" ${statusFilter === 'BORROWED' ? 'selected' : ''}>已借出</option>
         <option value="DAMAGED" ${statusFilter === 'DAMAGED' ? 'selected' : ''}>损坏</option>
         <option value="LOST" ${statusFilter === 'LOST' ? 'selected' : ''}>丢失</option>
       </select>
-      <select id="pc-page-size" class="form-select" style="width:128px;">
+      <select id="pc-page-size" class="form-select asset-toolbar__filter">
         ${[10, 20, 50, 100].map(size => `<option value="${size}" ${pageSize === size ? 'selected' : ''}>每页 ${size} 条</option>`).join('')}
       </select>
     </div>`;
@@ -260,8 +355,8 @@ function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFi
   const mainContent = `
     <div class="${headerClass}">
       <div class="page-header__info">
-        <h1 class="page-header__title">${isSuper ? '工具管理' : '设备管理'}</h1>
-        <p class="page-header__desc">共 ${total} 件设备/工具</p>
+        <h1 class="page-header__title">${title}</h1>
+        <p class="page-header__desc">${description} · 共 ${total} 件</p>
       </div>
       <div class="page-header__actions">
         ${headerActions}
@@ -272,19 +367,26 @@ function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFi
 
     <div class="content-row">
       <div class="content-main">
-          <div class="card" style="padding:0;overflow:hidden;">
+          <div class="table-card asset-table-card">
+          <div class="table-card__head asset-table-card__head">
+            <div>
+              <div class="table-card__title">器材列表</div>
+              <div class="table-card__desc">点击整行查看设备详情、库存照片和流转信息。</div>
+            </div>
+            <span class="tag">当前 ${assets.length} / 共 ${total} 件</span>
+          </div>
           <div class="table-wrapper ${isMobile ? 'table-wrapper--mobile-scroll' : ''}">
-            <table class="data-table asset-table ${isMobile ? 'asset-table--mobile' : ''}">
-              <thead><tr><th class="asset-table__code">编号</th><th class="asset-table__name">名称</th><th class="asset-table__type">类型</th><th class="asset-table__category">分类</th><th class="asset-table__status">状态</th><th class="asset-table__admin">管理员</th><th class="asset-table__location">位置</th></tr></thead>
-              <tbody>${tableRows || '<tr><td colspan="7"><div class="empty-state">暂无数据</div></td></tr>'}</tbody>
+            <table class="data-table data-table--interactive asset-table ${isMobile ? 'asset-table--mobile' : ''} ${showBorrower ? 'asset-table--with-borrower' : ''}">
+              <thead>${tableHead}</thead>
+              <tbody>${tableRows || `<tr><td colspan="${columnCount}"><div class="empty-state">暂无数据</div></td></tr>`}</tbody>
             </table>
           </div>
         </div>
         ${totalPages > 1 ? `
           <div class="flex-center gap-sm">
-            ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">上一页</button>` : ''}
+            ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('${routeName}',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">上一页</button>` : ''}
             <span class="text-sm text-muted">${page} / ${totalPages}</span>
-            ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">下一页</button>` : ''}
+            ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('${routeName}',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">下一页</button>` : ''}
           </div>` : ''}
       </div>
 
@@ -292,24 +394,36 @@ function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFi
       <div class="content-side">
         <div class="card stack--md">
           <h3>编辑范围</h3>
-          <p class="text-sm text-muted">你可以编辑自己负责设备的分类、存放位置和基础信息，但不能维护分类字典或位置字典。</p>
+          <p class="text-sm text-muted">你可以编辑自己负责设备的资产性质、分类、存放位置和基础信息，但不能维护属性字典或位置字典。</p>
         </div>
       </div>`}
     </div>`;
 
-  app.innerHTML = renderPcLayout('asset-list', mainContent);
+  app.innerHTML = renderPcLayout(activeRoute, mainContent);
 
   // Bindings
   document.getElementById('pc-asset-search').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      Router.navigate('asset-list', { keyword: e.target.value, status: statusFilter, page_size: pageSize });
+      Router.navigate(routeName, { keyword: e.target.value, status: statusFilter, page_size: pageSize });
     }
   });
   document.getElementById('pc-status-filter').addEventListener('change', (e) => {
-    Router.navigate('asset-list', { keyword, status: e.target.value, page_size: pageSize });
+    Router.navigate(routeName, { keyword, status: e.target.value, page_size: pageSize });
   });
   document.getElementById('pc-page-size').addEventListener('change', (e) => {
-    Router.navigate('asset-list', { keyword, status: statusFilter, page: 1, page_size: e.target.value });
+    Router.navigate(routeName, { keyword, status: statusFilter, page: 1, page_size: e.target.value });
+  });
+  document.querySelectorAll('.asset-table tbody tr[data-asset-id]').forEach((row) => {
+    const openDetail = () => Router.navigate('asset-detail', { id: row.dataset.assetId, from: activeRoute });
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('a,button,input,select,textarea,label')) return;
+      openDetail();
+    });
+    row.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openDetail();
+    });
   });
 }
 
@@ -338,7 +452,7 @@ Router.register('recent-deleted-assets', async () => {
           <p class="page-header__desc">展示最近 5 台被删除的设备，支持直接撤回。</p>
         </div>
         <div class="page-header__actions">
-          <a href="#asset-list" class="btn btn--outline btn--sm">返回设备列表</a>
+          <a href="#managed-assets" class="btn btn--outline btn--sm">返回我的器材</a>
         </div>
       </div>
       ${renderRecentDeletedAssetsCard(recentDeleted)}
@@ -353,6 +467,7 @@ Router.register('asset-detail', async (params) => {
   const app = document.getElementById('app');
   const user = Api.getUser();
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
+  const fromRoute = params.from === 'managed-assets' ? 'managed-assets' : 'asset-list';
 
   let asset = null;
   try {
@@ -362,6 +477,7 @@ Router.register('asset-detail', async (params) => {
     app.innerHTML = `<div class="empty-state"><p>${Utils.escapeHtml(e.message)}</p></div>`;
     return;
   }
+  const canEditAsset = isAdmin && (user.role === 'SUPER_ADMIN' || String(asset.admin_id) === String(user.id));
 
   // Load inventory photos
   let inventoryPhotos = [];
@@ -382,14 +498,14 @@ Router.register('asset-detail', async (params) => {
       <div class="page-header">
         <div class="page-header__info">
           <h1 class="page-header__title">${Utils.escapeHtml(asset.name)}</h1>
-          <p class="page-header__desc">${Utils.escapeHtml(asset.asset_code)} · ${Utils.assetTypeMap[asset.asset_type] || asset.asset_type} · ${Utils.escapeHtml(asset.category_name || '未分类')}</p>
+        <p class="page-header__desc">${Utils.escapeHtml(asset.asset_code)} · ${Utils.escapeHtml(asset.asset_type_name || '未设置性质')} · ${Utils.escapeHtml(asset.category_name || '未分类')}</p>
         </div>
         <div class="page-header__actions">
-          ${Utils.statusChip(asset.status)}
+          ${Utils.statusChip(asset.display_status || asset.status)}
           ${asset.status === 'IN_STOCK' ? `<button class="btn btn--primary btn--sm" id="detail-add-cart" data-id="${asset.id}" data-code="${Utils.escapeHtml(asset.asset_code)}" data-name="${Utils.escapeHtml(asset.name)}" data-loc="${Utils.escapeHtml(asset.location_name || '')}">加入借用清单</button>` : ''}
-          ${isAdmin ? `<button class="btn btn--secondary btn--sm" onclick="Router.navigate('asset-form',{id:'${asset.id}'})">编辑</button>` : ''}
+          ${canEditAsset ? `<button class="btn btn--secondary btn--sm" onclick="Router.navigate('asset-form',{id:'${asset.id}',from:'${fromRoute}'})">编辑</button>` : ''}
           ${user.role === 'SUPER_ADMIN' && asset.is_active ? `<button class="btn btn--danger btn--sm" id="asset-delete-btn">删除设备</button>` : ''}
-          <button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list')">返回列表</button>
+          <button class="btn btn--outline btn--sm" onclick="Router.navigate('${fromRoute}')">返回列表</button>
         </div>
       </div>
 
@@ -400,7 +516,7 @@ Router.register('asset-detail', async (params) => {
           <div class="stack--sm">
             <div class="meta-row"><span class="meta-row__label">编号</span><span class="meta-row__value">${Utils.escapeHtml(asset.asset_code)}</span></div>
             <div class="meta-row"><span class="meta-row__label">名称</span><span class="meta-row__value">${Utils.escapeHtml(asset.name)}</span></div>
-            <div class="meta-row"><span class="meta-row__label">类型</span><span class="meta-row__value">${Utils.assetTypeMap[asset.asset_type] || asset.asset_type}</span></div>
+              <div class="meta-row"><span class="meta-row__label">资产性质</span><span class="meta-row__value">${Utils.escapeHtml(asset.asset_type_name || '-')}</span></div>
             <div class="meta-row"><span class="meta-row__label">分类</span><span class="meta-row__value">${Utils.escapeHtml(asset.category_name || '-')}</span></div>
             <div class="meta-row"><span class="meta-row__label">位置</span><span class="meta-row__value">${Utils.escapeHtml(asset.location_name || '-')}</span></div>
             <div class="meta-row"><span class="meta-row__label">管理员</span><span class="meta-row__value">${Utils.escapeHtml(asset.admin_name || '-')}</span></div>
@@ -422,12 +538,12 @@ Router.register('asset-detail', async (params) => {
               `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`
             ).join('') : '<p class="text-sm text-muted">暂无照片</p>'}
           </div>
-          ${isAdmin ? `
+          ${canEditAsset ? `
           <div class="form-group" style="margin-top:8px;">
             <label class="form-label">上传库存照片</label>
             <input type="file" id="asset-photo-upload" accept="image/jpeg,image/png,image/webp" multiple style="font-size:0.8125rem;">
-            <div id="asset-upload-preview" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
-            <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;" disabled>上传</button>
+            <div id="asset-upload-preview" class="upload-preview-grid upload-preview-grid--compact" style="margin-top:6px;"></div>
+            <button class="btn btn--secondary btn--sm" id="asset-upload-btn" style="margin-top:8px;">选择照片</button>
           </div>` : ''}
         </div>
         ${user.role === 'SUPER_ADMIN' ? `
@@ -446,7 +562,7 @@ Router.register('asset-detail', async (params) => {
     </div>`;
 
   if (isAdmin) {
-    app.innerHTML = renderPcLayout('asset-list', detailHtml);
+    app.innerHTML = renderPcLayout(fromRoute, detailHtml);
   } else {
     const isMobile = window.innerWidth <= 768;
     if (isMobile) {
@@ -474,25 +590,90 @@ Router.register('asset-detail', async (params) => {
   const photoInput = document.getElementById('asset-photo-upload');
   const uploadBtn = document.getElementById('asset-upload-btn');
   if (photoInput && uploadBtn) {
-    photoInput.addEventListener('change', () => {
+    let detailUploadEntries = [];
+    let isDetailUploading = false;
+    const hasDetailUploading = () => detailUploadEntries.some((entry) => entry.uploading);
+
+    const renderDetailUploadPreview = () => {
       const preview = document.getElementById('asset-upload-preview');
+      if (!preview) return;
       preview.innerHTML = '';
-      for (const f of photoInput.files) {
-        const img = document.createElement('img');
-        img.src = URL.createObjectURL(f);
-        img.style.cssText = 'width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);';
-        preview.appendChild(img);
+      detailUploadEntries.forEach((entry, index) => {
+        preview.appendChild(Utils.createUploadProgressTile(entry, {
+          compact: true,
+          alt: `${asset.name} 上传预览`,
+          onRemove: isDetailUploading ? null : () => {
+            Utils.removeUploadPreviewEntry(detailUploadEntries, index);
+            renderDetailUploadPreview();
+          },
+        }));
+      });
+      uploadBtn.textContent = hasDetailUploading()
+        ? `上传中 ${detailUploadEntries.filter((entry) => entry.progress >= 100 && !entry.error).length}/${detailUploadEntries.length}`
+        : '选择照片';
+    };
+
+    const autoUploadDetailPhotos = async (files) => {
+      if (!files.length) return;
+      isDetailUploading = true;
+      Utils.releaseUploadPreviewEntries(detailUploadEntries);
+      const nextEntries = files.map((file) => {
+        const entry = Utils.createUploadPreviewEntry(file);
+        entry.uploading = true;
+        return entry;
+      });
+      detailUploadEntries = nextEntries;
+      renderDetailUploadPreview();
+      let failed = false;
+      for (const entry of nextEntries) {
+        entry.error = false;
+        try {
+          await Api.uploadAttachment(entry.file, 'INVENTORY', 'Asset', asset.id, {
+            onProgress: (progress) => {
+              entry.progress = progress;
+              renderDetailUploadPreview();
+            },
+          });
+          entry.progress = 100;
+        } catch (e) {
+          entry.error = true;
+          failed = true;
+          console.warn('Upload failed:', e);
+        } finally {
+          entry.uploading = false;
+          renderDetailUploadPreview();
+        }
       }
-      uploadBtn.disabled = photoInput.files.length === 0;
-    });
-    uploadBtn.addEventListener('click', async () => {
-      uploadBtn.disabled = true;
-      uploadBtn.textContent = '上传中...';
-      for (const f of photoInput.files) {
-        try { await Api.uploadAttachment(f, 'INVENTORY', 'Asset', asset.id); } catch (e) { console.warn('Upload failed:', e); }
+      isDetailUploading = false;
+      if (failed) {
+        uploadBtn.textContent = '选择照片';
+        Utils.showToast('部分照片上传失败，请重试', 'error');
+        renderDetailUploadPreview();
+        return;
       }
       Utils.showToast('照片上传成功');
-      Router.navigate('asset-detail', { id: asset.id });
+      Utils.releaseUploadPreviewEntries(detailUploadEntries);
+      Router.navigate('asset-detail', { id: asset.id, from: fromRoute });
+    };
+
+    photoInput.addEventListener('change', () => {
+      const files = Array.from(photoInput.files);
+      photoInput.value = '';
+      autoUploadDetailPhotos(files);
+    });
+    photoInput.addEventListener('click', (e) => {
+      if (hasDetailUploading()) {
+        e.preventDefault();
+        Utils.showToast('照片正在上传，请稍候', 'info');
+      }
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      if (hasDetailUploading()) {
+        Utils.showToast('照片正在上传，请稍候', 'info');
+        return;
+      }
+      photoInput.click();
     });
   }
 
@@ -507,7 +688,7 @@ Router.register('asset-detail', async (params) => {
         adminChangeBtn.textContent = '变更中...';
         await Api.updateAssetAdmin(asset.id, sel.value);
         Utils.showToast('管理员已变更');
-        Router.navigate('asset-detail', { id: asset.id });
+        Router.navigate('asset-detail', { id: asset.id, from: fromRoute });
       } catch (e) {
         Utils.showToast(e.message, 'error');
         adminChangeBtn.disabled = false;
@@ -522,7 +703,7 @@ Router.register('asset-detail', async (params) => {
       _showApprovalModal('删除设备', `确认删除设备“${asset.name}”？最近删除的 5 台设备支持撤回。`, async () => {
         await Api.deleteAsset(asset.id);
         Utils.showToast('设备已删除，可在最近删除中撤回');
-        Router.navigate('asset-list');
+        Router.navigate(fromRoute);
       });
     });
   }
@@ -533,15 +714,18 @@ Router.register('asset-form', async (params) => {
   const app = document.getElementById('app');
   const user = Api.getUser();
   const isEdit = !!params.id;
+  const fromRoute = params.from === 'asset-list' ? 'asset-list' : 'managed-assets';
   const editableStatusOptions = ['IN_STOCK', 'DAMAGED', 'LOST', 'DISABLED'];
   const workflowManagedStatuses = ['PENDING_BORROW_APPROVAL', 'BORROWED', 'PENDING_RETURN_APPROVAL'];
-  let asset = null, categories = [], locations = [], admins = [];
+  let asset = null, assetTypes = [], categories = [], locations = [], admins = [];
 
   try {
-    const [catRes, locRes] = await Promise.all([
+    const [typeRes, catRes, locRes] = await Promise.all([
+      Api.listAssetTypes(),
       Api.listCategories(),
       Api.listLocations(),
     ]);
+    assetTypes = typeRes.data || [];
     categories = catRes.data || [];
     locations = locRes.data || [];
 
@@ -553,6 +737,11 @@ Router.register('asset-form', async (params) => {
     if (isEdit) {
       const res = await Api.getAsset(params.id);
       asset = res.data;
+      if (user.role === 'ASSET_ADMIN' && String(asset.admin_id) !== String(user.id)) {
+        Utils.showToast('只能编辑自己负责的设备', 'error');
+        Router.navigate('managed-assets');
+        return;
+      }
     }
   } catch (e) {
     app.innerHTML = `<div class="empty-state"><p>${Utils.escapeHtml(e.message)}</p></div>`;
@@ -560,9 +749,31 @@ Router.register('asset-form', async (params) => {
   }
 
   const isWorkflowManagedStatus = isEdit && workflowManagedStatuses.includes(asset?.status);
+  const getStatusOptionLabel = (value) => {
+    if (isEdit && value === asset?.status && asset?.display_status && asset.display_status !== asset.status) {
+      return Utils.statusMap[asset.display_status]?.label || asset.display_status;
+    }
+    return Utils.statusMap[value]?.label || value;
+  };
   const statusOptionValues = isWorkflowManagedStatus
     ? [asset.status, ...editableStatusOptions.filter(value => value !== asset.status)]
     : editableStatusOptions;
+  const renderSelectOptions = (items, selectedId, placeholder) => {
+    const selectedValue = selectedId == null ? '' : String(selectedId);
+    const placeholderOption = `<option value="" disabled ${selectedValue ? '' : 'selected'} hidden>${placeholder}</option>`;
+    const itemOptions = items.map(item => `
+      <option value="${item.id}" ${selectedValue === String(item.id) ? 'selected' : ''}>${Utils.escapeHtml(item.name)}</option>
+    `).join('');
+    return placeholderOption + itemOptions;
+  };
+  const renderAdminOptions = () => {
+    const selectedValue = asset?.admin_id == null ? '' : String(asset.admin_id);
+    const placeholderOption = `<option value="" disabled ${selectedValue ? '' : 'selected'} hidden>请选择管理员</option>`;
+    const adminOptions = admins.map(admin => `
+      <option value="${admin.id}" ${selectedValue === String(admin.id) ? 'selected' : ''}>${Utils.escapeHtml(admin.full_name)} (${Utils.escapeHtml(admin.username)})</option>
+    `).join('');
+    return placeholderOption + adminOptions;
+  };
 
   const formHtml = `
     <div class="stack stack--page">
@@ -572,7 +783,7 @@ Router.register('asset-form', async (params) => {
           <p class="page-header__desc">${isEdit ? '修改设备信息' : '填写设备信息并上传库存照片'}</p>
         </div>
         <div class="page-header__actions">
-          <button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list')">返回列表</button>
+          <button class="btn btn--outline btn--sm" onclick="Router.navigate('${fromRoute}')">返回列表</button>
         </div>
       </div>
 
@@ -587,42 +798,39 @@ Router.register('asset-form', async (params) => {
             <label class="form-label">设备/工具名称 <span class="form-required">*必填</span></label>
             <input type="text" id="af-name" class="form-input" value="${Utils.escapeHtml(asset?.name || '')}" placeholder="例如：数字示波器">
           </div>
-          <div class="asset-form-row">
+          <div class="asset-form-row ${isEdit ? 'asset-form-row--triple' : ''}">
+            ${isEdit ? `
             <div class="form-group" style="flex:1;">
-              ${isEdit ? `
               <label class="form-label">状态 <span class="form-required">*必填</span></label>
               <select id="af-status" class="form-select" ${isWorkflowManagedStatus ? 'disabled' : ''}>
-                ${statusOptionValues.map(value => `<option value="${value}" ${asset?.status === value ? 'selected' : ''}>${Utils.statusMap[value]?.label || value}</option>`).join('')}
+                ${statusOptionValues.map(value => `<option value="${value}" ${asset?.status === value ? 'selected' : ''}>${getStatusOptionLabel(value)}</option>`).join('')}
               </select>
               <div class="text-xs text-muted">${isWorkflowManagedStatus ? '当前状态由借还流程维护，暂不可手动修改。' : '可手动维护在库、损坏、丢失、停用状态。'}</div>
-              ` : `
-              <label class="form-label">类型 <span class="form-required">*必填</span></label>
+            </div>` : ''}
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">资产性质 <span class="form-required">*必填</span></label>
               <select id="af-type" class="form-select">
-                <option value="DEVICE" ${asset?.asset_type === 'DEVICE' ? 'selected' : ''}>设备</option>
-                <option value="TOOL" ${asset?.asset_type === 'TOOL' ? 'selected' : ''}>工具</option>
-              </select>`}
+                ${renderSelectOptions(assetTypes, asset?.asset_type_id, '请选择资产性质')}
+              </select>
             </div>
             <div class="form-group" style="flex:1;">
               <label class="form-label">分类 <span class="form-required">*必填</span></label>
               <select id="af-category" class="form-select">
-                <option value="">请选择分类</option>
-                ${categories.map(c => `<option value="${c.id}" ${asset?.category_id === c.id ? 'selected' : ''}>${Utils.escapeHtml(c.name)}</option>`).join('')}
+                ${renderSelectOptions(categories, asset?.category_id, '请选择分类')}
               </select>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">存放位置 <span class="form-required">*必填</span></label>
             <select id="af-location" class="form-select">
-              <option value="">请选择位置</option>
-              ${locations.map(l => `<option value="${l.id}" ${asset?.location_id === l.id ? 'selected' : ''}>${Utils.escapeHtml(l.name)}</option>`).join('')}
+              ${renderSelectOptions(locations, asset?.location_id, '请选择位置')}
             </select>
           </div>
           ${user.role === 'SUPER_ADMIN' ? `
           <div class="form-group">
             <label class="form-label">设备管理员 <span class="form-required">*必填，超管必须指定</span></label>
             <select id="af-admin" class="form-select">
-              <option value="">请选择管理员</option>
-              ${admins.map(a => `<option value="${a.id}" ${asset?.admin_id === a.id ? 'selected' : ''}>${Utils.escapeHtml(a.full_name)} (${Utils.escapeHtml(a.username)})</option>`).join('')}
+              ${renderAdminOptions()}
             </select>
           </div>` : ''}
         </div>
@@ -652,20 +860,20 @@ Router.register('asset-form', async (params) => {
           </div>` : ''}
 
           <div id="af-error" class="form-error hidden"></div>
-          <button id="af-submit" class="btn btn--primary btn--full">${isEdit ? '保存修改' : '创建并上传照片'}</button>
+          <button id="af-submit" class="btn btn--primary btn--full">${isEdit ? '保存修改' : '确认创建'}</button>
         </div>
         ${isEdit ? `
         <div class="content-side">
           <div class="card stack--sm">
             <h3>库存照片</h3>
             <p class="text-sm text-muted">请在设备详情页上传/管理库存照片。</p>
-            <a href="#asset-detail?id=${params.id}" class="btn btn--outline btn--sm btn--full">查看设备详情</a>
+            <a href="#asset-detail?id=${params.id}&from=${fromRoute}" class="btn btn--outline btn--sm btn--full">查看设备详情</a>
           </div>
         </div>` : ''}
       </div>
     </div>`;
 
-  app.innerHTML = renderPcLayout('asset-list', formHtml);
+  app.innerHTML = renderPcLayout(fromRoute, formHtml);
 
   const ruleInfoBtn = document.getElementById('asset-rule-info-btn');
   if (ruleInfoBtn) {
@@ -677,31 +885,31 @@ Router.register('asset-form', async (params) => {
   // Photo preview for new asset
   const photoInput = document.getElementById('af-photos');
   const selectedPhotos = [];
+  let isAssetCreating = false;
+  const hasAssetPhotoUploading = () => selectedPhotos.some((entry) => entry.uploading);
+  const hasAssetPhotoFailed = () => selectedPhotos.some((entry) => entry.error);
   const renderAssetPhotoPreview = () => {
     const preview = document.getElementById('af-photo-preview');
     if (!preview) return;
     preview.innerHTML = '';
     const maxPhotos = 3;
 
-    selectedPhotos.forEach((file, index) => {
-      const tile = document.createElement('div');
-      tile.className = 'asset-photo-slot asset-photo-slot--filled';
-
-      const img = document.createElement('img');
-      img.src = URL.createObjectURL(file);
-      img.className = 'asset-photo-slot__img';
-
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'asset-photo-slot__remove';
-      delBtn.textContent = '×';
-      delBtn.addEventListener('click', () => {
-        selectedPhotos.splice(index, 1);
-        renderAssetPhotoPreview();
+    selectedPhotos.forEach((entry, index) => {
+      const tile = Utils.createUploadProgressTile(entry, {
+        alt: '库存照片预览',
+        onRemove: isAssetCreating ? null : async () => {
+          if (entry.stageToken) {
+            try {
+              await Api.discardStagedAttachment(entry.stageToken);
+            } catch (e) {
+              Utils.showToast(e.message || '移除照片失败', 'error');
+              return;
+            }
+          }
+          Utils.removeUploadPreviewEntry(selectedPhotos, index);
+          renderAssetPhotoPreview();
+        },
       });
-
-      tile.appendChild(img);
-      tile.appendChild(delBtn);
       preview.appendChild(tile);
     });
 
@@ -723,15 +931,50 @@ Router.register('asset-form', async (params) => {
   };
   if (photoInput) {
     renderAssetPhotoPreview();
+    photoInput.addEventListener('click', (e) => {
+      if (hasAssetPhotoUploading()) {
+        e.preventDefault();
+        Utils.showToast('照片正在上传，请稍候', 'info');
+      }
+    });
     photoInput.addEventListener('change', () => {
       const remaining = 3 - selectedPhotos.length;
       const nextFiles = Array.from(photoInput.files).slice(0, remaining);
-      nextFiles.forEach((file) => selectedPhotos.push(file));
       if (photoInput.files.length > nextFiles.length) {
         Utils.showToast('库存照片最多上传 3 张', 'info');
       }
       photoInput.value = '';
+      if (nextFiles.length === 0) {
+        renderAssetPhotoPreview();
+        return;
+      }
+      const nextEntries = nextFiles.map((file) => {
+        const entry = Utils.createUploadPreviewEntry(file);
+        entry.stageToken = null;
+        entry.uploading = true;
+        return entry;
+      });
+      selectedPhotos.push(...nextEntries);
       renderAssetPhotoPreview();
+      nextEntries.forEach(async (entry) => {
+        entry.error = false;
+        try {
+          const res = await Api.stageAttachment(entry.file, 'INVENTORY', {
+            onProgress: (progress) => {
+              entry.progress = progress;
+              renderAssetPhotoPreview();
+            },
+          });
+          entry.stageToken = res.data.stage_token;
+          entry.progress = 100;
+        } catch (e) {
+          entry.error = true;
+          Utils.showToast(e.message || '库存照片上传失败', 'error');
+        } finally {
+          entry.uploading = false;
+          renderAssetPhotoPreview();
+        }
+      });
     });
   }
 
@@ -751,11 +994,12 @@ Router.register('asset-form', async (params) => {
       remark: document.getElementById('af-remark').value.trim() || null,
     };
 
+    const typeEl = document.getElementById('af-type');
+    if (typeEl) data.asset_type_id = typeEl.value || null;
+
     if (isEdit) {
       const statusEl = document.getElementById('af-status');
       if (statusEl && !statusEl.disabled) data.status = statusEl.value;
-    } else {
-      data.asset_type = document.getElementById('af-type').value;
     }
 
     if (user.role === 'SUPER_ADMIN') {
@@ -765,11 +1009,14 @@ Router.register('asset-form', async (params) => {
 
     // Validation
     if (!data.name) { errEl.textContent = '请填写设备名称'; errEl.classList.remove('hidden'); return; }
+    if (!data.asset_type_id) { errEl.textContent = '请选择资产性质'; errEl.classList.remove('hidden'); return; }
     if (!data.category_id) { errEl.textContent = '请选择分类'; errEl.classList.remove('hidden'); return; }
     if (!data.location_id) { errEl.textContent = '请选择存放位置'; errEl.classList.remove('hidden'); return; }
     if (user.role === 'SUPER_ADMIN' && !data.admin_id) { errEl.textContent = '超管必须指定设备管理员'; errEl.classList.remove('hidden'); return; }
     if (!isEdit) {
       if (selectedPhotos.length === 0) { errEl.textContent = '请上传库存照片（必填）'; errEl.classList.remove('hidden'); return; }
+      if (hasAssetPhotoUploading()) { Utils.showToast('照片正在上传，请稍候', 'info'); return; }
+      if (hasAssetPhotoFailed()) { errEl.textContent = '有库存照片上传失败，请移除后重试'; errEl.classList.remove('hidden'); return; }
     }
 
     const submitBtn = document.getElementById('af-submit');
@@ -782,22 +1029,45 @@ Router.register('asset-form', async (params) => {
         assetId = params.id;
         Utils.showToast('更新成功');
       } else {
+        isAssetCreating = true;
         const res = await Api.createAsset(data);
         assetId = res.data.id;
-        // Upload inventory photos
         if (selectedPhotos.length > 0) {
-          for (const file of selectedPhotos) {
-            try { await Api.uploadAttachment(file, 'INVENTORY', 'Asset', assetId); } catch (e) { console.warn('Photo upload failed:', e); }
+          let failed = false;
+          for (let index = 0; index < selectedPhotos.length; index += 1) {
+            const entry = selectedPhotos[index];
+            try {
+              if (!entry.stageToken) throw new Error('照片仍未上传完成');
+              await Api.finalizeStagedAttachment(entry.stageToken, 'Asset', assetId);
+              entry.stageToken = null;
+            } catch (e) {
+              entry.error = true;
+              failed = true;
+              console.warn('Photo finalize failed:', e);
+            }
+            submitBtn.textContent = `确认中 ${index + 1}/${selectedPhotos.length}`;
+            renderAssetPhotoPreview();
+          }
+          if (failed) {
+            isAssetCreating = false;
+            submitBtn.disabled = false;
+            submitBtn.textContent = '确认创建';
+            errEl.textContent = '设备已创建，但部分库存照片确认失败，请进入设备详情补传。';
+            errEl.classList.remove('hidden');
+            Utils.showToast('部分库存照片确认失败', 'error');
+            return;
           }
         }
+        Utils.releaseUploadPreviewEntries(selectedPhotos);
         Utils.showToast('设备创建成功');
       }
-      Router.navigate('asset-detail', { id: assetId });
+      Router.navigate('asset-detail', { id: assetId, from: fromRoute });
     } catch (e) {
+      isAssetCreating = false;
       errEl.textContent = e.message;
       errEl.classList.remove('hidden');
       submitBtn.disabled = false;
-      submitBtn.textContent = isEdit ? '保存修改' : '创建并上传照片';
+      submitBtn.textContent = isEdit ? '保存修改' : '确认创建';
     }
   });
 });

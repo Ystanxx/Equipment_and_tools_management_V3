@@ -16,6 +16,7 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     target_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    equipment_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

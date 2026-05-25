@@ -2,6 +2,7 @@ const Utils = {
   statusMap: {
     IN_STOCK: { label: '在库', class: 'chip--stock' },
     PENDING_BORROW_APPROVAL: { label: '待借出审核', class: 'chip--pending' },
+    READY_FOR_PICKUP: { label: '待领取', class: 'chip--pending' },
     BORROWED: { label: '已借出', class: 'chip--borrowed' },
     PENDING_RETURN_APPROVAL: { label: '待归还审核', class: 'chip--pending' },
     LOST: { label: '丢失', class: 'chip--lost' },
@@ -19,11 +20,6 @@ const Utils = {
     USER: '普通用户',
     ASSET_ADMIN: '设备管理员',
     SUPER_ADMIN: '超级管理员',
-  },
-
-  assetTypeMap: {
-    DEVICE: '设备',
-    TOOL: '工具',
   },
 
   statusChip(status, map) {
@@ -50,6 +46,73 @@ const Utils = {
     return div.innerHTML;
   },
 
+  createUploadPreviewEntry(file) {
+    return {
+      file,
+      previewUrl: URL.createObjectURL(file),
+      progress: 0,
+      error: false,
+    };
+  },
+
+  releaseUploadPreviewEntries(entries) {
+    (entries || []).forEach((entry) => {
+      if (!entry || !entry.previewUrl) return;
+      URL.revokeObjectURL(entry.previewUrl);
+      entry.previewUrl = null;
+    });
+  },
+
+  removeUploadPreviewEntry(entries, index) {
+    const [removed] = (entries || []).splice(index, 1);
+    if (!removed) return;
+    this.releaseUploadPreviewEntries([removed]);
+  },
+
+  createUploadProgressTile(entry, options = {}) {
+    const tile = document.createElement('div');
+    tile.className = `upload-progress-tile${options.compact ? ' upload-progress-tile--compact' : ''}${entry.error ? ' upload-progress-tile--error' : ''}`;
+
+    const img = document.createElement('img');
+    img.className = 'upload-progress-tile__img';
+    img.src = entry.previewUrl;
+    img.alt = options.alt || '上传预览';
+    tile.appendChild(img);
+
+    const progress = Math.max(0, Math.min(100, Math.round(entry.progress || 0)));
+    if (entry.error || progress < 100) {
+      const overlay = document.createElement('div');
+      overlay.className = 'upload-progress-tile__overlay';
+
+      const mask = document.createElement('div');
+      mask.className = 'upload-progress-tile__mask';
+      mask.style.height = entry.error ? '100%' : `${100 - progress}%`;
+
+      const value = document.createElement('div');
+      value.className = 'upload-progress-tile__value';
+      value.textContent = entry.error ? '失败' : `${progress}%`;
+
+      overlay.appendChild(mask);
+      overlay.appendChild(value);
+      tile.appendChild(overlay);
+    }
+
+    if (typeof options.onRemove === 'function') {
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'upload-progress-tile__remove';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        options.onRemove();
+      });
+      tile.appendChild(removeBtn);
+    }
+
+    return tile;
+  },
+
   showToast(message, type = 'success') {
     const existing = document.querySelector('.toast');
     if (existing) existing.remove();
@@ -57,7 +120,61 @@ const Utils = {
     toast.className = `toast toast--${type}`;
     toast.textContent = message;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+
+    let removed = false;
+    let hideTimer = null;
+    let startY = null;
+    let currentOffset = 0;
+
+    const removeToast = () => {
+      if (removed) return;
+      removed = true;
+      if (hideTimer) clearTimeout(hideTimer);
+      toast.classList.add('toast--dismissed');
+      setTimeout(() => toast.remove(), 180);
+    };
+
+    const resetToastPosition = () => {
+      currentOffset = 0;
+      toast.classList.remove('toast--dragging');
+      toast.style.setProperty('--toast-offset-y', '0px');
+      toast.style.setProperty('--toast-opacity', '1');
+    };
+
+    hideTimer = setTimeout(removeToast, 3000);
+
+    toast.addEventListener('touchstart', (event) => {
+      if (event.touches.length !== 1) return;
+      startY = event.touches[0].clientY;
+      currentOffset = 0;
+      toast.classList.add('toast--dragging');
+    }, { passive: true });
+
+    toast.addEventListener('touchmove', (event) => {
+      if (startY === null || event.touches.length !== 1) return;
+      const deltaY = event.touches[0].clientY - startY;
+      if (deltaY >= 0) return;
+      currentOffset = deltaY;
+      toast.style.setProperty('--toast-offset-y', `${deltaY}px`);
+      toast.style.setProperty('--toast-opacity', String(Math.max(0.25, 1 - Math.abs(deltaY) / 120)));
+    }, { passive: true });
+
+    const endSwipe = () => {
+      if (startY === null) return;
+      const shouldDismiss = currentOffset <= -44;
+      startY = null;
+      if (shouldDismiss) {
+        removeToast();
+      } else {
+        resetToastPosition();
+      }
+    };
+
+    toast.addEventListener('touchend', endSwipe, { passive: true });
+    toast.addEventListener('touchcancel', () => {
+      startY = null;
+      resetToastPosition();
+    }, { passive: true });
   },
 
   openLightbox(src) {

@@ -9,7 +9,7 @@ from app.schemas.asset_category import CategoryCreate, CategoryUpdate, CategoryO
 from app.schemas.common import ResponseSchema
 from app.services import category_service
 
-router = APIRouter(prefix="/asset-categories", tags=["分类管理"])
+router = APIRouter(prefix="/asset-categories", tags=["属性管理"])
 
 
 @router.get("", response_model=ResponseSchema[list[CategoryOut]])

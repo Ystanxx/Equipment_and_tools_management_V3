@@ -14,7 +14,7 @@ from app.utils.enums import (
     BorrowOrderStatus,
     UserRole,
 )
-from app.services import audit_service, notification_service
+from app.services import audit_service, equipment_order_service, notification_service
 
 
 def list_pending_tasks(
@@ -22,6 +22,7 @@ def list_pending_tasks(
     approver_id: uuid.UUID | None = None,
     order_id: uuid.UUID | None = None,
     status_filter: str | None = None,
+    history_only: bool = False,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[BorrowApprovalTask], int]:
@@ -30,6 +31,8 @@ def list_pending_tasks(
         q = q.filter(BorrowApprovalTask.approver_id == approver_id)
     if order_id:
         q = q.filter(BorrowApprovalTask.order_id == order_id)
+    if history_only:
+        q = q.filter(BorrowApprovalTask.status != ApprovalTaskStatus.PENDING)
     if status_filter:
         q = q.filter(BorrowApprovalTask.status == status_filter)
     total = q.count()
@@ -46,10 +49,20 @@ def approve_task(db: Session, task_id: uuid.UUID, user: User, comment: str | Non
 
     _sync_order_status(db, task.order_id)
 
-    audit_service.log(db, user.id, "BORROW_TASK_APPROVE", "BorrowApprovalTask", task.id, task.order_id, f"通过借出审批，{len(task.item_ids)} 件")
+    order = db.query(BorrowOrder).filter(BorrowOrder.id == task.order_id).first()
+    equipment_order_service.sync_from_borrow_order(db, task.order_id)
+    audit_service.log(
+        db,
+        user.id,
+        "BORROW_TASK_APPROVE",
+        "BorrowApprovalTask",
+        task.id,
+        equipment_order_id=order.equipment_order_id if order else None,
+        order_id=task.order_id,
+        description=f"通过借出审批，{len(task.item_ids)} 件",
+    )
 
     # 通知借用人审批进度
-    order = db.query(BorrowOrder).filter(BorrowOrder.id == task.order_id).first()
     if order:
         if order.status == BorrowOrderStatus.READY_FOR_PICKUP:
             notification_service.create(
@@ -100,10 +113,20 @@ def reject_task(db: Session, task_id: uuid.UUID, user: User, comment: str | None
 
     _sync_order_status(db, task.order_id)
 
-    audit_service.log(db, user.id, "BORROW_TASK_REJECT", "BorrowApprovalTask", task.id, task.order_id, f"驳回借出审批，{len(task.item_ids)} 件")
+    order = db.query(BorrowOrder).filter(BorrowOrder.id == task.order_id).first()
+    equipment_order_service.sync_from_borrow_order(db, task.order_id)
+    audit_service.log(
+        db,
+        user.id,
+        "BORROW_TASK_REJECT",
+        "BorrowApprovalTask",
+        task.id,
+        equipment_order_id=order.equipment_order_id if order else None,
+        order_id=task.order_id,
+        description=f"驳回借出审批，{len(task.item_ids)} 件",
+    )
 
     # 通知借用人驳回
-    order = db.query(BorrowOrder).filter(BorrowOrder.id == task.order_id).first()
     if order:
         comment_text = f"审批意见：{comment}" if comment else ""
         notification_service.create(

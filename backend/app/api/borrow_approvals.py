@@ -19,6 +19,7 @@ def _task_to_out(t, db: Session = None) -> BorrowApprovalTaskOut:
     item_details = []
     order_no = None
     applicant_name = None
+    equipment_order_id = None
     if db and t.item_ids:
         items = db.query(BorrowOrderItem).filter(BorrowOrderItem.id.in_(t.item_ids)).all()
         item_details = [
@@ -33,9 +34,11 @@ def _task_to_out(t, db: Session = None) -> BorrowApprovalTaskOut:
         if order:
             order_no = order.order_no
             applicant_name = order.applicant.full_name if order.applicant else None
+            equipment_order_id = order.equipment_order_id
     return BorrowApprovalTaskOut(
         id=t.id,
         order_id=t.order_id,
+        equipment_order_id=equipment_order_id,
         order_no=order_no,
         applicant_name=applicant_name,
         approver_id=t.approver_id,
@@ -54,6 +57,7 @@ def list_tasks(
     page: int = 1,
     page_size: int = 20,
     status: str | None = None,
+    history_only: bool = False,
     order_id: UUID | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
@@ -65,6 +69,7 @@ def list_tasks(
         approver_id=approver_id,
         order_id=order_id,
         status_filter=status,
+        history_only=history_only,
         page=page,
         page_size=page_size,
     )

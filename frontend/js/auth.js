@@ -65,6 +65,9 @@ async function handleLogin() {
     const meRes = await Api.me();
     Api.setUser(meRes.data);
     await Api.bootstrapSystemConfigs();
+    if (typeof startInventoryStateSync === 'function') {
+      startInventoryStateSync();
+    }
 
     const user = meRes.data;
     if (user.status === 'PENDING') {
@@ -182,41 +185,52 @@ Router.register('pending', async () => {
 Router.register('profile', async () => {
   const app = document.getElementById('app');
   await Api.bootstrapSystemConfigs();
-  const user = Api.getUser();
+  let user = Api.getUser();
   if (!user) return Router.navigate('login');
 
   await ensureUnreadCount();
 
   const isAdmin = user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const isMobile = window.innerWidth <= 768;
   const roleLabel = Utils.roleMap[user.role] || user.role;
   const isGlobalEmailEnabled = Boolean(Api.getSystemConfig('enable_email_notifications', false));
   const emailPreferenceTip = isGlobalEmailEnabled
     ? '系统邮件通道已开启，关键业务变更会按你的个人偏好发送到注册邮箱。'
     : '系统邮件通道当前由超级管理员全局关闭；你仍可先保存个人偏好，待全局开启后生效。';
 
+  const accountCardHtml = `
+    <div class="card stack--md">
+      <div class="flex-between gap-sm" style="align-items:flex-start;">
+        <div>
+          <h3>${isSuperAdmin ? '我的资料' : '账户信息'}</h3>
+          ${isSuperAdmin ? '<p class="text-sm text-muted" style="margin-top:6px;">可直接维护自己的用户名、姓名与邮箱。</p>' : ''}
+        </div>
+        ${isSuperAdmin ? '<button class="btn btn--outline btn--sm" id="profile-edit-self-btn">编辑我的资料</button>' : ''}
+      </div>
+      <div class="stack--sm">
+        <div class="meta-row"><span class="meta-row__label">用户名</span><span class="meta-row__value">${Utils.escapeHtml(user.username)}</span></div>
+        <div class="meta-row"><span class="meta-row__label">姓名</span><span class="meta-row__value">${Utils.escapeHtml(user.full_name)}</span></div>
+        <div class="meta-row"><span class="meta-row__label">邮箱</span><span class="meta-row__value">${Utils.escapeHtml(user.email)}</span></div>
+        <div class="meta-row"><span class="meta-row__label">角色</span><span class="meta-row__value">${roleLabel}</span></div>
+        ${user.phone ? `<div class="meta-row"><span class="meta-row__label">手机</span><span class="meta-row__value">${Utils.escapeHtml(user.phone)}</span></div>` : ''}
+        ${user.department ? `<div class="meta-row"><span class="meta-row__label">部门</span><span class="meta-row__value">${Utils.escapeHtml(user.department)}</span></div>` : ''}
+        ${user.employee_id ? `<div class="meta-row"><span class="meta-row__label">工号</span><span class="meta-row__value">${Utils.escapeHtml(user.employee_id)}</span></div>` : ''}
+        <div class="meta-row"><span class="meta-row__label">注册时间</span><span class="meta-row__value">${Utils.formatDateTime(user.created_at)}</span></div>
+      </div>
+    </div>`;
+
   const mainContent = `
     <div class="page-header">
       <div class="page-header__info">
         <h1 class="page-header__title">个人中心</h1>
-        <p class="page-header__desc">查看账户信息与修改密码</p>
+        <p class="page-header__desc">${isSuperAdmin ? '管理个人资料与安全设置' : '查看账户信息与修改密码'}</p>
       </div>
     </div>
 
     <div class="content-row">
       <div class="content-main">
-        <div class="card stack--md">
-          <h3>账户信息</h3>
-          <div class="stack--sm">
-            <div class="meta-row"><span class="meta-row__label">用户名</span><span class="meta-row__value">${Utils.escapeHtml(user.username)}</span></div>
-            <div class="meta-row"><span class="meta-row__label">姓名</span><span class="meta-row__value">${Utils.escapeHtml(user.full_name)}</span></div>
-            <div class="meta-row"><span class="meta-row__label">邮箱</span><span class="meta-row__value">${Utils.escapeHtml(user.email)}</span></div>
-            <div class="meta-row"><span class="meta-row__label">角色</span><span class="meta-row__value">${roleLabel}</span></div>
-            ${user.phone ? `<div class="meta-row"><span class="meta-row__label">手机</span><span class="meta-row__value">${Utils.escapeHtml(user.phone)}</span></div>` : ''}
-            ${user.department ? `<div class="meta-row"><span class="meta-row__label">部门</span><span class="meta-row__value">${Utils.escapeHtml(user.department)}</span></div>` : ''}
-            ${user.employee_id ? `<div class="meta-row"><span class="meta-row__label">工号</span><span class="meta-row__value">${Utils.escapeHtml(user.employee_id)}</span></div>` : ''}
-            <div class="meta-row"><span class="meta-row__label">注册时间</span><span class="meta-row__value">${Utils.formatDateTime(user.created_at)}</span></div>
-          </div>
-        </div>
+        ${accountCardHtml}
 
         <div class="card stack--md">
           <div class="stack--sm">
@@ -261,7 +275,6 @@ Router.register('profile', async () => {
       </div>
     </div>`;
 
-  const isMobile = window.innerWidth <= 768;
   if (isMobile && !isAdmin) {
     app.innerHTML = renderMobileUserShell('profile', mainContent, {
       backHref: 'asset-list',
@@ -273,6 +286,14 @@ Router.register('profile', async () => {
   } else {
     app.innerHTML = renderUserLayout('profile', mainContent);
   }
+
+  document.getElementById('profile-edit-self-btn')?.addEventListener('click', () => {
+    openUserProfileEditorModal(user, async (updatedUser) => {
+      Api.setUser(updatedUser);
+      user = updatedUser;
+      Router.navigate('profile');
+    });
+  });
 
   document.getElementById('profile-email-notify').addEventListener('change', async (event) => {
     const input = event.currentTarget;
@@ -337,7 +358,78 @@ Router.register('profile', async () => {
 
 // ===== Logout helper =====
 function handleLogout() {
+  if (typeof stopInventoryStateSync === 'function') {
+    stopInventoryStateSync();
+  }
   Api.clearToken();
   Api.clearUser();
   Router.navigate('login');
+}
+
+function openUserProfileEditorModal(targetUser, onSaved) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal__header">
+        <div class="modal__title">编辑资料</div>
+        <button class="modal__close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="stack--md">
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input type="text" id="profile-edit-username" class="form-input" value="${Utils.escapeHtml(targetUser.username)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">姓名</label>
+          <input type="text" id="profile-edit-fullname" class="form-input" value="${Utils.escapeHtml(targetUser.full_name)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">邮箱</label>
+          <input type="email" id="profile-edit-email" class="form-input" value="${Utils.escapeHtml(targetUser.email)}">
+        </div>
+        <div id="profile-edit-error" class="form-error hidden"></div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--outline btn--sm" type="button" data-action="cancel">取消</button>
+        <button class="btn btn--primary btn--sm" type="button" data-action="save">保存</button>
+      </div>
+    </div>`;
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector('.modal__close')?.addEventListener('click', close);
+  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+  overlay.querySelector('[data-action="save"]')?.addEventListener('click', async () => {
+    const errorEl = overlay.querySelector('#profile-edit-error');
+    const saveBtn = overlay.querySelector('[data-action="save"]');
+    const payload = {
+      username: overlay.querySelector('#profile-edit-username').value.trim(),
+      full_name: overlay.querySelector('#profile-edit-fullname').value.trim(),
+      email: overlay.querySelector('#profile-edit-email').value.trim(),
+    };
+
+    if (!payload.username || !payload.full_name || !payload.email) {
+      errorEl.textContent = '请完整填写用户名、姓名和邮箱';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      saveBtn.disabled = true;
+      const res = await Api.updateUserProfile(targetUser.id, payload);
+      Utils.showToast('资料已更新', 'success');
+      await onSaved(res.data);
+      close();
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.classList.remove('hidden');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  document.body.appendChild(overlay);
 }

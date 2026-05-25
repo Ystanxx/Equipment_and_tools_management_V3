@@ -114,6 +114,10 @@ const Api = {
 
   async parseResponse(res) {
     const text = await res.text();
+    return this.parseTextResponse(text, res.status, res.url);
+  },
+
+  parseTextResponse(text, status, url) {
     if (!text) return {};
 
     try {
@@ -121,9 +125,9 @@ const Api = {
     } catch {
       const lowered = text.trim().toLowerCase();
       if (lowered.startsWith('<!doctype') || lowered.startsWith('<html')) {
-        throw new Error(`接口 ${res.url} 返回了 HTML 页面。通常是直接打开了前端文件，或者后端仍在运行旧版本代码，请完整重启服务。`);
+        throw new Error(`接口 ${url} 返回了 HTML 页面。通常是直接打开了前端文件，或者后端仍在运行旧版本代码，请完整重启服务。`);
       }
-      throw new Error(`接口返回了非 JSON 响应，状态码 ${res.status}`);
+      throw new Error(`接口返回了非 JSON 响应，状态码 ${status}`);
     }
   },
 
@@ -150,8 +154,15 @@ const Api = {
   // Users
   listUsers(params) { return this.get('/users', params); },
   getUserById(id) { return this.get(`/users/${id}`); },
+  updateUserProfile(id, data) { return this.put(`/users/${id}/profile`, data); },
   updateRole(id, role) { return this.put(`/users/${id}/role`, { role }); },
   updateUserStatus(id, status) { return this.put(`/users/${id}/status`, { status }); },
+
+  // Asset Types
+  listAssetTypes(params) { return this.get('/asset-types', params); },
+  createAssetType(data) { return this.post('/asset-types', data); },
+  updateAssetType(id, data) { return this.put(`/asset-types/${id}`, data); },
+  deleteAssetType(id) { return this.del(`/asset-types/${id}`); },
 
   // Categories
   listCategories(params) { return this.get('/asset-categories', params); },
@@ -167,6 +178,7 @@ const Api = {
 
   // Assets
   listAssets(params) { return this.get('/assets', params); },
+  getAssetLiveState() { return this.get('/assets/live-state'); },
   listRecentDeletedAssets(limit = 5) { return this.get('/assets/deleted/recent', { limit }); },
   getAsset(id) { return this.get(`/assets/${id}`); },
   createAsset(data) { return this.post('/assets', data); },
@@ -181,6 +193,11 @@ const Api = {
   getBorrowOrder(id) { return this.get(`/borrow-orders/${id}`); },
   deliverBorrowOrder(id) { return this.post(`/borrow-orders/${id}/deliver`); },
   cancelBorrowOrder(id) { return this.post(`/borrow-orders/${id}/cancel`); },
+
+  // Unified Equipment Orders
+  listEquipmentOrders(params) { return this.get('/equipment-orders', params); },
+  getEquipmentOrder(id) { return this.get(`/equipment-orders/${id}`); },
+  getEquipmentOrderTimeline(id) { return this.get(`/equipment-orders/${id}/timeline`); },
 
   // Borrow Approval Tasks
   listBorrowApprovalTasks(params) { return this.get('/borrow-approval-tasks', params); },
@@ -208,9 +225,65 @@ const Api = {
   createReturnOrder(data) { return this.post('/return-orders', data); },
   listReturnOrders(params) { return this.get('/return-orders', params); },
   getReturnOrder(id) { return this.get(`/return-orders/${id}`); },
+  stockInReturnOrder(id) { return this.post(`/return-orders/${id}/stock-in`); },
 
   // Attachments
-  async uploadAttachment(file, photoType, relatedType, relatedId) {
+  async stageAttachment(file, photoType, options = {}) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('photo_type', photoType);
+    const headers = {};
+    const token = this.getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const uploadUrl = API_BASE + '/attachments/stage';
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl, true);
+      Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+
+      if (onProgress) {
+        onProgress(0);
+        xhr.upload.addEventListener('progress', (event) => {
+          if (!event.lengthComputable) return;
+          const percent = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+          onProgress(percent);
+        });
+      }
+
+      xhr.onload = () => {
+        let json = {};
+        try {
+          json = this.parseTextResponse(xhr.responseText || xhr.response || '', xhr.status, uploadUrl);
+        } catch (error) {
+          reject(error);
+          return;
+        }
+
+        if (xhr.status === 401) {
+          this.clearToken();
+          this.clearUser();
+          Router.navigate('login');
+          reject(new Error('登录已过期'));
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(json.detail || '上传失败'));
+          return;
+        }
+
+        if (onProgress) onProgress(100);
+        resolve(json);
+      };
+
+      xhr.onerror = () => reject(new Error('上传失败，请检查网络连接'));
+      xhr.onabort = () => reject(new Error('上传已取消'));
+      xhr.send(form);
+    });
+  },
+  async uploadAttachment(file, photoType, relatedType, relatedId, options = {}) {
     const form = new FormData();
     form.append('file', file);
     form.append('photo_type', photoType);
@@ -219,11 +292,83 @@ const Api = {
     const headers = {};
     const token = this.getToken();
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    const res = await fetch(API_BASE + '/attachments', { method: 'POST', headers, body: form });
-    if (res.status === 401) { this.clearToken(); this.clearUser(); Router.navigate('login'); throw new Error('登录已过期'); }
+    const uploadUrl = API_BASE + '/attachments';
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl, true);
+      Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+
+      if (onProgress) {
+        onProgress(0);
+        xhr.upload.addEventListener('progress', (event) => {
+          if (!event.lengthComputable) return;
+          const percent = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+          onProgress(percent);
+        });
+      }
+
+      xhr.onload = () => {
+        let json = {};
+        try {
+          json = this.parseTextResponse(xhr.responseText || xhr.response || '', xhr.status, uploadUrl);
+        } catch (error) {
+          reject(error);
+          return;
+        }
+
+        if (xhr.status === 401) {
+          this.clearToken();
+          this.clearUser();
+          Router.navigate('login');
+          reject(new Error('登录已过期'));
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(json.detail || '上传失败'));
+          return;
+        }
+
+        if (onProgress) onProgress(100);
+        resolve(json);
+      };
+
+      xhr.onerror = () => reject(new Error('上传失败，请检查网络连接'));
+      xhr.onabort = () => reject(new Error('上传已取消'));
+      xhr.send(form);
+    });
+  },
+  async finalizeStagedAttachment(stageToken, relatedType, relatedId) {
+    const form = new FormData();
+    form.append('stage_token', stageToken);
+    form.append('related_type', relatedType);
+    form.append('related_id', relatedId);
+    const token = this.getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const url = API_BASE + '/attachments/finalize';
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
     const json = await this.parseResponse(res);
-    if (!res.ok) throw new Error(json.detail || '上传失败');
+    if (res.status === 401) {
+      this.clearToken();
+      this.clearUser();
+      Router.navigate('login');
+      throw new Error(json.detail || '登录已过期');
+    }
+    if (!res.ok) {
+      throw new Error(json.detail || json.message || '附件确认失败');
+    }
     return json;
+  },
+  async discardStagedAttachment(stageToken) {
+    return this.request('DELETE', `/attachments/stage/${stageToken}`);
   },
   listAttachments(params) { return this.get('/attachments', params); },
 
