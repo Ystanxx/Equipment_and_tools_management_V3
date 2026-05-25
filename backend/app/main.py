@@ -144,6 +144,13 @@ if FRONTEND_DIR.exists():
     app.mount("/css", StaticFiles(directory=FRONTEND_DIR / "css"), name="css")
     app.mount("/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
 
+    # Serve logo favicon
+    logo_path = FRONTEND_DIR / "public" / "logo.svg"
+    if logo_path.exists():
+        @app.get("/logo.svg", include_in_schema=False)
+        async def serve_logo():
+            return FileResponse(logo_path, media_type="image/svg+xml")
+
     @app.middleware("http")
     async def frontend_cache_control_middleware(request: Request, call_next):
         response = await call_next(request)
