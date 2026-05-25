@@ -265,6 +265,120 @@ Router.register('pending', async () => {
     </div>`;
 });
 
+// ===== Profile Page =====
+Router.register('profile', async () => {
+  const app = document.getElementById('app');
+  const user = Api.getUser();
+  if (!user) return Router.navigate('login');
+
+  await ensureUnreadCount();
+
+  const isAdmin = user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN';
+  const roleLabel = Utils.roleMap[user.role] || user.role;
+
+  const mainContent = `
+    <div class="page-header">
+      <div class="page-header__info">
+        <h1 class="page-header__title">个人中心</h1>
+        <p class="page-header__desc">查看账户信息与修改密码</p>
+      </div>
+    </div>
+
+    <div class="content-row">
+      <div class="content-main">
+        <div class="card stack--md">
+          <h3>账户信息</h3>
+          <div class="stack--sm">
+            <div class="meta-row"><span class="meta-row__label">用户名</span><span class="meta-row__value">${Utils.escapeHtml(user.username)}</span></div>
+            <div class="meta-row"><span class="meta-row__label">姓名</span><span class="meta-row__value">${Utils.escapeHtml(user.full_name)}</span></div>
+            <div class="meta-row"><span class="meta-row__label">邮箱</span><span class="meta-row__value">${Utils.escapeHtml(user.email)}</span></div>
+            <div class="meta-row"><span class="meta-row__label">角色</span><span class="meta-row__value">${roleLabel}</span></div>
+            ${user.phone ? `<div class="meta-row"><span class="meta-row__label">手机</span><span class="meta-row__value">${Utils.escapeHtml(user.phone)}</span></div>` : ''}
+            ${user.department ? `<div class="meta-row"><span class="meta-row__label">部门</span><span class="meta-row__value">${Utils.escapeHtml(user.department)}</span></div>` : ''}
+            ${user.employee_id ? `<div class="meta-row"><span class="meta-row__label">工号</span><span class="meta-row__value">${Utils.escapeHtml(user.employee_id)}</span></div>` : ''}
+            <div class="meta-row"><span class="meta-row__label">注册时间</span><span class="meta-row__value">${Utils.formatDateTime(user.created_at)}</span></div>
+          </div>
+        </div>
+
+        <div class="card stack--md">
+          <h3>修改密码</h3>
+          <div class="form-group">
+            <label class="form-label">原密码 *</label>
+            <input type="password" id="pwd-old" class="form-input" placeholder="请输入当前密码">
+          </div>
+          <div class="form-group">
+            <label class="form-label">新密码 *</label>
+            <input type="password" id="pwd-new" class="form-input" placeholder="至少6位">
+          </div>
+          <div class="form-group">
+            <label class="form-label">确认新密码 *</label>
+            <input type="password" id="pwd-confirm" class="form-input" placeholder="再次输入新密码">
+          </div>
+          <div id="pwd-error" class="form-error hidden"></div>
+          <button class="btn btn--primary" id="pwd-save-btn">保存新密码</button>
+        </div>
+      </div>
+
+      <div class="content-side">
+        <div class="card stack--sm">
+          <h3>账户操作</h3>
+          <button class="btn btn--outline btn--full" onclick="handleLogout()">退出登录</button>
+        </div>
+      </div>
+    </div>`;
+
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) {
+    app.innerHTML = `
+      <div class="mobile-back-bar">
+        <a href="#${isAdmin ? 'dashboard' : 'asset-list'}" class="mobile-back-bar__link">${Utils.svgIcon('arrowLeft')} 返回</a>
+        <span class="mobile-back-bar__title">个人中心</span>
+      </div>
+      <div style="padding:12px;">${mainContent}</div>`;
+  } else {
+    app.innerHTML = renderPcLayout('profile', mainContent);
+  }
+
+  document.getElementById('pwd-save-btn').addEventListener('click', async () => {
+    const errEl = document.getElementById('pwd-error');
+    errEl.classList.add('hidden');
+
+    const oldPwd = document.getElementById('pwd-old').value;
+    const newPwd = document.getElementById('pwd-new').value;
+    const confirmPwd = document.getElementById('pwd-confirm').value;
+
+    if (!oldPwd || !newPwd || !confirmPwd) {
+      errEl.textContent = '请填写所有密码字段';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if (newPwd.length < 6) {
+      errEl.textContent = '新密码长度不能少于6位';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      errEl.textContent = '两次输入的新密码不一致';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      document.getElementById('pwd-save-btn').disabled = true;
+      await Api.changePassword(oldPwd, newPwd);
+      Utils.showToast('密码修改成功');
+      document.getElementById('pwd-old').value = '';
+      document.getElementById('pwd-new').value = '';
+      document.getElementById('pwd-confirm').value = '';
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove('hidden');
+    } finally {
+      document.getElementById('pwd-save-btn').disabled = false;
+    }
+  });
+});
+
 // ===== Logout helper =====
 function handleLogout() {
   Api.clearToken();
