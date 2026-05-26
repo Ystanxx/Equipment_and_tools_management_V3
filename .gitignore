@@ -29,3 +29,10 @@ alembic/versions/__pycache__/
 
 # Uploads
 backend/uploads/
+
+# Runbooks
+*runbook*.json
+
+# Deployment config
+equipment_app_server_update.json
+一键更新.txt

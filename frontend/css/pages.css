@@ -27,18 +27,11 @@
   align-items: center;
   gap: 8px;
 }
-.login-page__logo {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 14px;
-  border-radius: var(--radius-chip);
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-bottom: 4px;
+.login-page__logo-img {
+  display: block;
+  width: 80px;
+  height: auto;
+  margin: 0 auto 8px;
 }
 .login-page__title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.3px; }
 .login-page__subtitle { font-size: 0.8125rem; color: var(--muted); }

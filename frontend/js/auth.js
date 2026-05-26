@@ -6,7 +6,7 @@ Router.register('login', async () => {
     <div class="login-page">
       <div class="login-page__card">
         <div class="login-page__header">
-          <div class="login-page__logo">LAB OPS</div>
+          <img src="/logo.svg" alt="Lily Lab 器材借还" class="login-page__logo-img" />
           <h1 class="login-page__title">器材管理系统</h1>
         </div>
         <div class="auth-form">
@@ -90,7 +90,7 @@ Router.register('register', async () => {
     <div class="login-page">
       <div class="login-page__card" style="max-width:480px;">
         <div class="login-page__header">
-          <div class="login-page__logo">LAB OPS</div>
+          <img src="/logo.svg" alt="Lily Lab 器材借还" class="login-page__logo-img" />
           <h1 class="login-page__title">注册账号</h1>
           <p class="login-page__subtitle">填写信息后提交，等待管理员审核通过即可使用</p>
         </div>

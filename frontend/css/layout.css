@@ -27,15 +27,10 @@
   gap: 12px;
   padding: 4px 2px 12px;
 }
-.sidebar__brand-mark {
-  width: 46px;
-  height: 46px;
+.sidebar__brand-logo {
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-}
-.sidebar__brand-mark svg {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 .sidebar__brand-copy {
   display: flex;
@@ -347,15 +342,11 @@
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.mobile-top-shell__brand {
+.mobile-top-shell__brand-logo {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 0.8px;
-  white-space: nowrap;
+  display: block;
+  width: 28px;
+  height: 28px;
 }
 .mobile-top-shell__menu {
   flex: 1;

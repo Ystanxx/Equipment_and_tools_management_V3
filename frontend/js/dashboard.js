@@ -195,7 +195,7 @@ function renderMobileTopShell(active, bodyContent, links, options = {}) {
   return `
     <div class="page--mobile">
       <div class="mobile-top-shell" data-menu-key="${menuKey}">
-        <div class="mobile-top-shell__brand">LAB OPS</div>
+        <img src="/logo.svg" alt="Lily Lab 器材借还" class="mobile-top-shell__brand-logo" />
         <div class="mobile-top-shell__menu">
           <div class="mobile-top-shell__scroll">
             ${[...links, ...actionLinks].map(item => renderMobileTopLink(item, active)).join('')}
@@ -238,7 +238,7 @@ function renderSidebar(active) {
   return `
     <div class="sidebar">
       <div class="sidebar__brand">
-        <div class="sidebar__brand-mark">${Utils.svgIcon('brandMark')}</div>
+        <img src="/logo.svg" alt="Lily Lab 器材借还" class="sidebar__brand-logo" />
         <div class="sidebar__brand-copy">
           <span class="sidebar__brand-tag">LAB OPS</span>
           <span class="sidebar__brand-title">器材控制台</span>
