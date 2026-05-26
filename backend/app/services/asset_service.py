@@ -1,21 +1,63 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.attachment import Attachment
 from app.models.asset import Asset
+from app.models.asset_category import AssetCategory
 from app.models.asset_type import AssetTypeOption
 from app.models.audit_log import AuditLog
 from app.models.borrow_order import BorrowOrder
 from app.models.borrow_order_item import BorrowOrderItem
+from app.models.storage_location import StorageLocation
 from app.models.user import User
 from app.schemas.asset import AssetCreate, AssetUpdate
 from app.services.asset_number_service import generate_asset_code
 from app.utils.enums import UserRole, AssetStatus, PhotoType, BorrowOrderStatus
 from app.services import audit_service
+
+# ----- pinyin helpers -----
+import re
+from pypinyin import pinyin, Style as PinyinStyle
+
+_CJK_RE = re.compile(r"[一-鿿]")
+
+
+def _to_pinyin_full(name: str) -> str:
+    """将中文名称转为全拼小写，保留英文与数字，忽略符号"""
+    if not name:
+        return ""
+    name = str(name)
+    parts: list[str] = []
+    for ch in name:
+        if _CJK_RE.match(ch):
+            py = pinyin(ch, style=PinyinStyle.NORMAL, errors="ignore")
+            if py and py[0]:
+                parts.append(py[0][0])
+        elif ch.isalpha():
+            parts.append(ch.lower())
+        elif ch.isdigit():
+            parts.append(ch)
+    return "".join(parts)
+
+
+def _to_pinyin_initials(name: str) -> str:
+    """将中文名称转为首字母小写，保留英文字母首字母"""
+    if not name:
+        return ""
+    name = str(name)
+    parts: list[str] = []
+    for ch in name:
+        if _CJK_RE.match(ch):
+            py = pinyin(ch, style=PinyinStyle.FIRST_LETTER, errors="ignore")
+            if py and py[0]:
+                parts.append(py[0][0])
+        elif ch.isalpha():
+            parts.append(ch.lower())
+    return "".join(parts)
 
 
 def _attach_inventory_previews(db: Session, items: list[Asset]) -> None:
@@ -179,6 +221,44 @@ def get_asset_live_state(db: Session) -> dict[str, str | int | None]:
         "asset_version": latest_updated_at.isoformat() if latest_updated_at else None,
         "updated_asset_count": active_count,
     }
+
+
+def list_asset_search_index(db: Session) -> list[dict]:
+    """返回轻量搜索索引——仅包含搜索所需的字段，不含图片、描述等大字段"""
+    stmt = (
+        select(
+            Asset.id,
+            Asset.asset_code,
+            Asset.name,
+            Asset.category_id,
+            Asset.location_id,
+            Asset.status,
+            AssetCategory.name.label("category_name"),
+            StorageLocation.name.label("location_name"),
+        )
+        .outerjoin(AssetCategory, Asset.category_id == AssetCategory.id)
+        .outerjoin(StorageLocation, Asset.location_id == StorageLocation.id)
+        .where(Asset.is_active == True)
+    )
+    rows = db.execute(stmt).all()
+
+    results: list[dict] = []
+    for row in rows:
+        name = row.name or ""
+        results.append({
+            "id": row.id,
+            "asset_code": row.asset_code,
+            "name": name,
+            "category_id": row.category_id,
+            "category_name": row.category_name,
+            "location_id": row.location_id,
+            "location_name": row.location_name,
+            "status": row.status,
+            "display_status": row.status.value if row.status else None,
+            "pinyin_full": _to_pinyin_full(name),
+            "pinyin_initials": _to_pinyin_initials(name),
+        })
+    return results
 
 
 def get_asset(db: Session, asset_id: uuid.UUID) -> Asset:

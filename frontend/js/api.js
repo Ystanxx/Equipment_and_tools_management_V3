@@ -180,6 +180,7 @@ const Api = {
   // Assets
   listAssets(params) { return this.get('/assets', params); },
   getAssetLiveState() { return this.get('/assets/live-state'); },
+  getAssetSearchIndex() { return this.get('/assets/search-index'); },
   listRecentDeletedAssets(limit = 5) { return this.get('/assets/deleted/recent', { limit }); },
   getAsset(id) { return this.get(`/assets/${id}`); },
   createAsset(data) { return this.post('/assets', data); },

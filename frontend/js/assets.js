@@ -13,6 +13,9 @@ Router.register('asset-list', async (params) => {
   let categories = [];
   try { const cr = await Api.listCategories(); categories = cr.data || []; } catch (e) { /* 忽略 */ }
 
+  // 预加载搜索索引（本地缓存+版本比对，失败不影响页面）
+  AssetSearch.ensureIndex();
+
   let assets = [], total = 0, summaryTotal = 0, stockCount = 0;
   try {
     const qp = { page, page_size: pageSize };
@@ -113,9 +116,12 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
 
       <div class="card borrow-browser__surface">
         <div class="borrow-browser__toolbar">
-          <div class="search-bar borrow-browser__search">
-            ${Utils.svgIcon('search')}
-            <input type="text" id="user-search" placeholder="搜索编号、名称、分类" value="${Utils.escapeHtml(keyword)}">
+          <div class="asset-search-wrap borrow-browser__search">
+            <div class="search-bar asset-search-bar">
+              ${Utils.svgIcon('search')}
+              <input type="text" id="user-search" placeholder="搜索编号、名称、分类" value="${Utils.escapeHtml(keyword)}" autocomplete="off">
+            </div>
+            <div id="asset-search-suggestions" class="asset-search-suggestions hidden"></div>
           </div>
           <select id="user-page-size" class="form-select borrow-browser__page-size">
             ${[10, 20, 50, 100].map(size => `<option value="${size}" ${pageSize === size ? 'selected' : ''}>每页 ${size} 条</option>`).join('')}
@@ -181,10 +187,112 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
     app.innerHTML = renderUserLayout('asset-list', bodyHtml);
   }
 
-  // Search binding
-  document.getElementById('user-search').addEventListener('keydown', (e) => {
+  // ----- 搜索下拉建议 -----
+  const searchInput = document.getElementById('user-search');
+  const suggestionsWrap = document.getElementById('asset-search-suggestions');
+  let currentSuggestions = [];
+  let highlightedIndex = -1;
+
+  function renderSearchSuggestions(items) {
+    if (!suggestionsWrap) return;
+    if (!items || !items.length) {
+      suggestionsWrap.classList.add('hidden');
+      suggestionsWrap.innerHTML = '';
+      return;
+    }
+    suggestionsWrap.innerHTML = items.map(function (item, idx) {
+      return '<div class="asset-search-suggestion" data-index="' + idx + '">'
+        + '<div class="asset-search-suggestion__name">' + Utils.escapeHtml(item.name) + '</div>'
+        + '<div class="asset-search-suggestion__meta">' + Utils.escapeHtml(item.asset_code) + ' · ' + Utils.escapeHtml(item.category_name || '未分类') + ' · ' + Utils.escapeHtml(item.location_name || '未设置位置') + '</div>'
+        + '</div>';
+    }).join('');
+    suggestionsWrap.classList.remove('hidden');
+  }
+
+  function updateSuggestionHighlight() {
+    var nodes = suggestionsWrap ? suggestionsWrap.querySelectorAll('.asset-search-suggestion') : [];
+    for (var i = 0; i < nodes.length; i++) {
+      if (i === highlightedIndex) {
+        nodes[i].classList.add('active');
+      } else {
+        nodes[i].classList.remove('active');
+      }
+    }
+  }
+
+  function closeSuggestions() {
+    if (suggestionsWrap) {
+      suggestionsWrap.classList.add('hidden');
+      suggestionsWrap.innerHTML = '';
+    }
+    currentSuggestions = [];
+    highlightedIndex = -1;
+  }
+
+  // input 事件 — debounce 后本地搜索
+  searchInput.addEventListener('input', debounce(function () {
+    var q = searchInput.value.trim();
+    if (!q) { closeSuggestions(); return; }
+    currentSuggestions = AssetSearch.search(q, { status: statusFilter, category_id: categoryId }, 5);
+    highlightedIndex = -1;
+    renderSearchSuggestions(currentSuggestions);
+  }, 150));
+
+  // keydown 事件 — 键盘导航 + Enter 回车
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      closeSuggestions();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!currentSuggestions.length) return;
+      highlightedIndex = (highlightedIndex + 1) % currentSuggestions.length;
+      updateSuggestionHighlight();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!currentSuggestions.length) return;
+      highlightedIndex = highlightedIndex <= 0 ? currentSuggestions.length - 1 : highlightedIndex - 1;
+      updateSuggestionHighlight();
+      return;
+    }
     if (e.key === 'Enter') {
+      // 有高亮建议项 → 选中该项
+      if (highlightedIndex >= 0 && highlightedIndex < currentSuggestions.length) {
+        e.preventDefault();
+        var sel = currentSuggestions[highlightedIndex];
+        searchInput.value = sel.name;
+        closeSuggestions();
+        Router.navigate('asset-list', { keyword: sel.name, status: statusFilter, category_id: categoryId, page_size: pageSize, page: 1 });
+        return;
+      }
+      // 无高亮 → 原有回车搜索行为
+      closeSuggestions();
       Router.navigate('asset-list', { keyword: e.target.value, status: statusFilter, category_id: categoryId, page_size: pageSize });
+    }
+  });
+
+  // click 事件 — 点击建议项选中
+  if (suggestionsWrap) {
+    suggestionsWrap.addEventListener('click', function (e) {
+      var el = e.target.closest('.asset-search-suggestion');
+      if (!el) return;
+      var idx = parseInt(el.dataset.index, 10);
+      var item = currentSuggestions[idx];
+      if (!item) return;
+      searchInput.value = item.name;
+      closeSuggestions();
+      Router.navigate('asset-list', { keyword: item.name, status: statusFilter, category_id: categoryId, page_size: pageSize, page: 1 });
+    });
+  }
+
+  // 点击搜索框外部关闭下拉
+  document.addEventListener('click', function (e) {
+    var wrap = document.querySelector('.asset-search-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      closeSuggestions();
     }
   });
   document.getElementById('user-page-size').addEventListener('change', (e) => {

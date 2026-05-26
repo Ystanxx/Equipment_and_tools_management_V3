@@ -136,6 +136,59 @@
   flex: 1;
   min-width: 0;
 }
+
+/* ----- 搜索下拉建议 ----- */
+.asset-search-wrap {
+  position: relative;
+}
+.asset-search-bar {
+  /* 复用 .search-bar 样式，无额外覆盖 */
+}
+.asset-search-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  margin-top: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+.asset-search-suggestions.hidden {
+  display: none;
+}
+.asset-search-suggestion {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.asset-search-suggestion:last-child {
+  border-bottom: none;
+}
+.asset-search-suggestion:hover,
+.asset-search-suggestion.active {
+  background: var(--panel-alt);
+}
+.asset-search-suggestion__name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.asset-search-suggestion__meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .borrow-browser__page-size {
   width: 138px;
   flex-shrink: 0;

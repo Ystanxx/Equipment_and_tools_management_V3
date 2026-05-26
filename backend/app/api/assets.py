@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_active_user, require_admin_or_super, require_super_admin
 from app.models.user import User
-from app.schemas.asset import AssetCreate, AssetUpdate, AssetOut, AdminUpdateRequest, AssetLiveStateOut
+from app.schemas.asset import AssetCreate, AssetUpdate, AssetOut, AdminUpdateRequest, AssetLiveStateOut, AssetSearchIndexItem
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import asset_service
 from app.utils.enums import AssetStatus
@@ -79,6 +79,15 @@ def get_asset_live_state(
 ):
     data = asset_service.get_asset_live_state(db)
     return ResponseSchema(data=AssetLiveStateOut(**data))
+
+
+@router.get("/search-index", response_model=ResponseSchema[list[AssetSearchIndexItem]])
+def get_asset_search_index(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_active_user),
+):
+    items = asset_service.list_asset_search_index(db)
+    return ResponseSchema(data=items)
 
 
 @router.get("/deleted/recent", response_model=ResponseSchema[list[AssetOut]])

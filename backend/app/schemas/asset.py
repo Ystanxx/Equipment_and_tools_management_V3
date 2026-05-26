@@ -73,3 +73,19 @@ class AssetOut(BaseModel):
 class AssetLiveStateOut(BaseModel):
     asset_version: str | None = None
     updated_asset_count: int = 0
+
+
+class AssetSearchIndexItem(BaseModel):
+    id: uuid.UUID
+    asset_code: str
+    name: str
+    category_id: uuid.UUID | None = None
+    category_name: str | None = None
+    location_id: uuid.UUID | None = None
+    location_name: str | None = None
+    status: AssetStatus
+    display_status: str | None = None
+    pinyin_full: str = ""
+    pinyin_initials: str = ""
+
+    model_config = {"from_attributes": True}
