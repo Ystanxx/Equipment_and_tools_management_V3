@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_admin_or_super, require_super_admin
+from app.core.deps import get_db, get_active_user, require_super_admin
 from app.models.user import User
 from app.schemas.asset_category import CategoryCreate, CategoryUpdate, CategoryOut
 from app.schemas.common import ResponseSchema
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/asset-categories", tags=["属性管理"])
 def list_categories(
     include_inactive: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_or_super),
+    current_user: User = Depends(get_active_user),
 ):
     items = category_service.list_categories(db, include_inactive)
     return ResponseSchema(data=[CategoryOut.model_validate(c) for c in items])

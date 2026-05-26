@@ -7,16 +7,24 @@ Router.register('asset-list', async (params) => {
   const pageSize = [10, 20, 50, 100].includes(parseInt(params.page_size, 10)) ? parseInt(params.page_size, 10) : 20;
   const keyword = params.keyword || '';
   const statusFilter = params.status || '';
+  const categoryId = params.category_id || '';
+
+  // 获取业务分类列表（用于筛选）
+  let categories = [];
+  try { const cr = await Api.listCategories(); categories = cr.data || []; } catch (e) { /* 忽略 */ }
 
   let assets = [], total = 0, summaryTotal = 0, stockCount = 0;
   try {
     const qp = { page, page_size: pageSize };
     if (keyword) qp.keyword = keyword;
     if (statusFilter) qp.status = statusFilter;
+    if (categoryId) qp.category_id = categoryId;
     const summaryQp = { page: 1, page_size: 1 };
     if (keyword) summaryQp.keyword = keyword;
+    if (categoryId) summaryQp.category_id = categoryId;
     const stockQp = { page: 1, page_size: 1, status: 'IN_STOCK' };
     if (keyword) stockQp.keyword = keyword;
+    if (categoryId) stockQp.category_id = categoryId;
     const [res, summaryRes, stockRes] = await Promise.all([
       Api.listAssets(qp),
       Api.listAssets(summaryQp),
@@ -30,10 +38,10 @@ Router.register('asset-list', async (params) => {
     console.error(e);
   }
 
-  renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user, {
+  renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, categoryId, user, {
     summaryTotal,
     stockCount,
-  });
+  }, categories);
 });
 
 Router.register('managed-assets', async (params) => {
@@ -68,7 +76,7 @@ Router.register('managed-assets', async (params) => {
   }
 });
 
-function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user, summary = {}) {
+function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, categoryId, user, summary = {}, categories = []) {
   const isMobile = window.innerWidth <= 768;
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
   const stockCount = Number.isFinite(summary.stockCount) ? summary.stockCount : assets.filter(a => a.status === 'IN_STOCK').length;
@@ -119,6 +127,11 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
           <span class="chip ${statusFilter === 'IN_STOCK' ? 'chip--active' : 'chip--outline'}" data-status="IN_STOCK">在库</span>
           <span class="chip ${statusFilter === 'BORROWED' ? 'chip--active' : 'chip--outline'}" data-status="BORROWED">借出</span>
         </div>
+
+        <div class="borrow-browser__filters borrow-browser__filters--card chip-row" style="margin-top:6px;">
+          <span class="chip ${!categoryId ? 'chip--active' : 'chip--outline'}" data-category="">全部分类</span>
+          ${categories.map(c => `<span class="chip ${categoryId === String(c.id) ? 'chip--active' : 'chip--outline'}" data-category="${c.id}">${Utils.escapeHtml(c.name)}</span>`).join('')}
+        </div>
       </div>
 
       <div class="asset-grid asset-grid--borrow">
@@ -135,9 +148,9 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
                   ${Utils.statusChip(getDisplayStatus(a))}
                 </div>
                 <div class="asset-card__meta-list">
-                  <div class="asset-card__meta"><span class="asset-card__meta-label">分类</span><span>${Utils.escapeHtml(a.category_name || '未分类')}</span></div>
-                  <div class="asset-card__meta"><span class="asset-card__meta-label">位置</span><span>${Utils.escapeHtml(a.location_name || '未设置位置')}</span></div>
-                  <div class="asset-card__meta"><span class="asset-card__meta-label">规格</span><span>${Utils.escapeHtml((`${a.brand || ''} ${a.model || ''}`).trim() || '暂无品牌 / 型号')}</span></div>
+                  <div class="asset-card__meta"><span>${Utils.escapeHtml(a.category_name || '未分类')}</span></div>
+                  <div class="asset-card__meta"><span>${Utils.escapeHtml(a.location_name || '未设置位置')}</span></div>
+                  <div class="asset-card__meta"><span>${Utils.escapeHtml((`${a.brand || ''} ${a.model || ''}`).trim() || '暂无品牌 / 型号')}</span></div>
                 </div>
                 <div class="asset-card__footer">
                   <span class="asset-card__availability ${a.status === 'IN_STOCK' ? 'asset-card__availability--stock' : 'asset-card__availability--disabled'}">${a.status === 'IN_STOCK' ? '在库可借' : '当前不可借'}</span>
@@ -152,9 +165,9 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
 
       ${totalPages > 1 ? `
         <div class="flex-center gap-sm borrow-browser__pagination">
-          ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">上一页</button>` : ''}
+          ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}',category_id:'${categoryId}'})">上一页</button>` : ''}
           <span class="text-sm text-muted">${page} / ${totalPages}</span>
-          ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">下一页</button>` : ''}
+          ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}',category_id:'${categoryId}'})">下一页</button>` : ''}
         </div>` : ''}
     </div>`;
 
@@ -171,17 +184,19 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
   // Search binding
   document.getElementById('user-search').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      Router.navigate('asset-list', { keyword: e.target.value, status: statusFilter, page_size: pageSize });
+      Router.navigate('asset-list', { keyword: e.target.value, status: statusFilter, category_id: categoryId, page_size: pageSize });
     }
   });
   document.getElementById('user-page-size').addEventListener('change', (e) => {
-    Router.navigate('asset-list', { keyword, status: statusFilter, page: 1, page_size: e.target.value });
+    Router.navigate('asset-list', { keyword, status: statusFilter, category_id: categoryId, page: 1, page_size: e.target.value });
   });
 
-  // Chip filter
+  // Chip filter（状态 + 分类）
   document.querySelectorAll('.chip-row .chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      Router.navigate('asset-list', { keyword, status: chip.dataset.status, page_size: pageSize });
+      const newStatus = 'status' in chip.dataset ? chip.dataset.status : statusFilter;
+      const newCategory = 'category' in chip.dataset ? chip.dataset.category : categoryId;
+      Router.navigate('asset-list', { keyword, status: newStatus, category_id: newCategory, page_size: pageSize });
     });
   });
 
