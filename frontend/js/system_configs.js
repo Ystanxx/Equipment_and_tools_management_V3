@@ -16,6 +16,11 @@ Router.register('system-configs', async () => {
   }
 
   const renderField = (item) => {
+    if (item.is_secret) {
+      const placeholder = item.has_value ? '已保存，留空则保持不变' : '留空则使用 .env 配置';
+      return `<input type="password" class="form-input config-input" data-key="${item.key}" value="" placeholder="${Utils.escapeHtml(placeholder)}" autocomplete="new-password">`;
+    }
+
     if (item.value_type === 'bool') {
       return `
         <label class="switch-row">
@@ -31,20 +36,32 @@ Router.register('system-configs', async () => {
         </select>`;
     }
 
+    if (item.value_type === 'text') {
+      return `<textarea class="form-textarea config-input" data-key="${item.key}" rows="5" placeholder="可使用 {title} 和 {content}">${Utils.escapeHtml(String(item.value ?? ''))}</textarea>`;
+    }
+
     const inputType = item.value_type === 'int' ? 'number' : 'text';
     const minAttr = item.min_value !== null && item.min_value !== undefined ? `min="${item.min_value}"` : '';
     const maxAttr = item.max_value !== null && item.max_value !== undefined ? `max="${item.max_value}"` : '';
     return `<input type="${inputType}" class="form-input config-input" data-key="${item.key}" value="${Utils.escapeHtml(String(item.value ?? ''))}" ${minAttr} ${maxAttr}>`;
   };
 
-  const isModified = (item) => false; // 不再基于持久化值高亮，改为前端脏状态追踪
+  const renderDefaultTag = (item) => {
+    if (item.value_type === 'text') {
+      return '<span class="config-row__default-tag">默认：系统模板</span>';
+    }
+    const value = item.default_value === '' || item.default_value === null || item.default_value === undefined
+      ? '空'
+      : String(item.default_value);
+    return `<span class="config-row__default-tag">默认：${Utils.escapeHtml(value)}</span>`;
+  };
 
   const renderItem = (item) => `
     <div class="config-row" data-key="${item.key}">
       <div class="config-row__info">
         <div class="config-row__label">
           ${Utils.escapeHtml(item.label || item.key)}
-          <span class="config-row__default-tag">默认：${Utils.escapeHtml(String(item.default_value))}</span>
+          ${renderDefaultTag(item)}
         </div>
         <div class="config-row__desc">${Utils.escapeHtml(item.description)}</div>
       </div>
@@ -77,6 +94,10 @@ Router.register('system-configs', async () => {
       title: '通知开关',
       desc: '全局通知渠道控制；每个用户可在个人中心设置自己的邮件偏好。',
     },
+    smtp: {
+      title: '邮件 SMTP',
+      desc: '维护邮件服务器、发件人和认证参数；空值会回退到后端 .env 配置。',
+    },
   };
   const groupedConfigs = Object.entries(groupMeta)
     .map(([group, meta]) => ({ ...meta, items: configs.filter(item => item.group === group) }))
@@ -87,9 +108,10 @@ Router.register('system-configs', async () => {
       <div class="page-header">
         <div class="page-header__info">
           <h1 class="page-header__title">系统配置</h1>
-          <p class="page-header__desc">配置借用规则、图片策略与保留参数</p>
+          <p class="page-header__desc">配置借用规则、图片策略、通知与邮件参数</p>
         </div>
         <div class="page-header__actions">
+          <button class="btn btn--secondary" id="config-test-email-btn">发送测试邮件</button>
           <button class="btn btn--primary" id="config-save-btn">保存配置</button>
         </div>
       </div>
@@ -101,6 +123,28 @@ Router.register('system-configs', async () => {
     </div>`;
 
   app.innerHTML = renderPcLayout('system-configs', mainContent);
+
+  document.getElementById('config-test-email-btn').addEventListener('click', async () => {
+    const errEl = document.getElementById('config-error');
+    const testBtn = document.getElementById('config-test-email-btn');
+    errEl.classList.add('hidden');
+
+    const toEmail = window.prompt('请输入测试邮件收件邮箱', user.email || '');
+    if (toEmail === null) return;
+
+    try {
+      testBtn.disabled = true;
+      testBtn.textContent = '发送中...';
+      await Api.testSystemConfigEmail(toEmail.trim() || null);
+      Utils.showToast('测试邮件已发送');
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove('hidden');
+    } finally {
+      testBtn.disabled = false;
+      testBtn.textContent = '发送测试邮件';
+    }
+  });
 
   document.getElementById('config-save-btn').addEventListener('click', async () => {
     const errEl = document.getElementById('config-error');

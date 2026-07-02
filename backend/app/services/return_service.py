@@ -40,6 +40,21 @@ def _generate_return_order_no(db: Session) -> str:
     return f"{prefix}{seq:04d}"
 
 
+RETURN_CONDITION_LABELS = {
+    ReturnItemCondition.GOOD: "完好",
+    ReturnItemCondition.PARTIAL_LOSS: "部分丢失",
+    ReturnItemCondition.FULL_LOSS: "全部丢失",
+    ReturnItemCondition.DAMAGED: "损坏",
+}
+
+
+def _format_return_items_for_notification(items: list[ReturnOrderItem]) -> str:
+    return "、".join(
+        f"{item.asset_name_snapshot}（{item.asset_code_snapshot}，{RETURN_CONDITION_LABELS.get(item.condition, item.condition.value)}）"
+        for item in items
+    )
+
+
 def _get_already_returned_asset_ids(db: Session, borrow_order_id: uuid.UUID) -> set[uuid.UUID]:
     """查找该借用单下所有已提交归还（非取消）的 asset_id"""
     existing = (
@@ -140,6 +155,7 @@ def create_return_order(
     db.flush()
 
     admin_items: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    return_items_by_id: dict[uuid.UUID, ReturnOrderItem] = {}
 
     for inp in items_input:
         bi = borrow_item_map.get(inp["borrow_order_item_id"])
@@ -166,6 +182,7 @@ def create_return_order(
         )
         db.add(ri)
         db.flush()
+        return_items_by_id[ri.id] = ri
         admin_items[bi.admin_id_snapshot].append(ri.id)
 
         # 设备状态 → 待归还审核
@@ -196,12 +213,15 @@ def create_return_order(
     )
 
     # 通知各管理员有新归还审批
-    for approver_id in admin_items.keys():
+    for approver_id, item_ids in admin_items.items():
+        item_text = _format_return_items_for_notification(
+            [return_items_by_id[item_id] for item_id in item_ids if item_id in return_items_by_id]
+        )
         notification_service.create(
             db,
             recipient_id=approver_id,
-            title="新归还单待审批",
-            content=f"用户 {applicant.full_name} 提交了归还单 {order_no}，包含 {len(admin_items[approver_id])} 件您负责的设备，请尽快审批。",
+            title="归还待审核",
+            content=f"{applicant.full_name} 申请归还 {item_text}。单号：{order_no}，请及时审批。",
             notification_type="RETURN",
             related_type="ReturnOrder",
             related_id=return_order.id,

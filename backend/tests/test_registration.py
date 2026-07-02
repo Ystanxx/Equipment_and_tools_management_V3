@@ -3,6 +3,7 @@ def test_approve_registration(client, auth_headers):
         "username": "newuser", "email": "new@b.com", "password": "pass", "full_name": "New",
     })
     assert reg_res.status_code == 200
+    assert reg_res.json()["data"]["email_notifications_enabled"] is True
 
     list_res = client.get("/api/v1/registration-requests", params={"status": "PENDING"}, headers=auth_headers)
     assert list_res.status_code == 200

@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.system_config import SystemConfig
 from app.models.user import User
 from app.services import audit_service
@@ -24,6 +25,8 @@ class ConfigDefinition:
     min_value: int | None = None
     max_value: int | None = None
     options: tuple[str, ...] = ()
+    allow_empty: bool = False
+    is_secret: bool = False
 
 
 CONFIG_DEFINITIONS: dict[str, ConfigDefinition] = {
@@ -171,6 +174,78 @@ CONFIG_DEFINITIONS: dict[str, ConfigDefinition] = {
         group="notification",
         is_public=True,
     ),
+    "smtp_host": ConfigDefinition(
+        key="smtp_host",
+        default=settings.SMTP_HOST,
+        value_type="str",
+        label="SMTP 服务器",
+        description="邮件服务的 SMTP 主机地址",
+        group="smtp",
+        allow_empty=True,
+    ),
+    "smtp_port": ConfigDefinition(
+        key="smtp_port",
+        default=settings.SMTP_PORT,
+        value_type="int",
+        label="SMTP 端口",
+        description="SMTP 服务端口，常见 STARTTLS 端口为 587",
+        group="smtp",
+        min_value=1,
+        max_value=65535,
+    ),
+    "smtp_user": ConfigDefinition(
+        key="smtp_user",
+        default=settings.SMTP_USER,
+        value_type="str",
+        label="SMTP 账号",
+        description="用于登录 SMTP 服务的账号",
+        group="smtp",
+        allow_empty=True,
+    ),
+    "smtp_password": ConfigDefinition(
+        key="smtp_password",
+        default="",
+        value_type="str",
+        label="SMTP 密码",
+        description="用于登录 SMTP 服务的密码、应用密码或供应商令牌",
+        group="smtp",
+        allow_empty=True,
+        is_secret=True,
+    ),
+    "smtp_use_ssl": ConfigDefinition(
+        key="smtp_use_ssl",
+        default=settings.SMTP_USE_SSL,
+        value_type="bool",
+        label="使用 SSL 直连",
+        description="启用后使用 SMTP_SSL；关闭时使用 STARTTLS",
+        group="smtp",
+    ),
+    "smtp_from_name": ConfigDefinition(
+        key="smtp_from_name",
+        default=settings.SMTP_FROM_NAME,
+        value_type="str",
+        label="发件人名称",
+        description="邮件中展示的发件人名称",
+        group="smtp",
+        allow_empty=True,
+    ),
+    "smtp_from_email": ConfigDefinition(
+        key="smtp_from_email",
+        default=settings.SMTP_FROM_EMAIL,
+        value_type="str",
+        label="发件邮箱",
+        description="邮件中展示的发件邮箱，留空时使用 SMTP 账号",
+        group="smtp",
+        allow_empty=True,
+    ),
+    "smtp_notification_template": ConfigDefinition(
+        key="smtp_notification_template",
+        default="{title}\n\n{content}\n\n— 器材管理系统",
+        value_type="text",
+        label="邮件内容模板",
+        description="通知邮件正文模板，可使用 {title} 和 {content} 占位符",
+        group="smtp",
+    ),
 }
 
 MISSING_TABLE_MESSAGE = "system_configs 表不存在，请先执行 alembic upgrade head"
@@ -199,14 +274,21 @@ def update_configs(db: Session, values: dict[str, bool | int | str | None], oper
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="至少需要更新一个配置项")
 
     persisted = _query_configs(db, values.keys(), allow_missing_table=False)
+    audit_snapshot: dict[str, Any] = {}
 
     for key, raw_value in values.items():
         definition = CONFIG_DEFINITIONS.get(key)
         if not definition:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"未知配置项: {key}")
 
-        normalized_value = _normalize_value(definition, raw_value)
         item = persisted.get(key)
+        if definition.is_secret and _is_empty_value(raw_value) and item and item.value:
+            item.description = definition.description
+            item.updated_by = operator.id
+            audit_snapshot[key] = "保持不变"
+            continue
+
+        normalized_value = _normalize_value(definition, raw_value)
         if item is None:
             item = SystemConfig(
                 key=key,
@@ -221,13 +303,15 @@ def update_configs(db: Session, values: dict[str, bool | int | str | None], oper
             item.description = definition.description
             item.updated_by = operator.id
 
+        audit_snapshot[key] = _build_audit_value(definition, normalized_value)
+
     audit_service.log(
         db,
         operator.id,
         "SYSTEM_CONFIG_UPDATE",
         "SystemConfig",
         description=f"更新系统配置：{', '.join(sorted(values.keys()))}",
-        snapshot={key: _normalize_value(CONFIG_DEFINITIONS[key], value) for key, value in values.items()},
+        snapshot=audit_snapshot,
     )
     db.commit()
 
@@ -276,15 +360,20 @@ def _is_missing_system_config_table(exc: ProgrammingError | OperationalError) ->
 
 
 def _build_config_item(definition: ConfigDefinition, item: SystemConfig | None) -> dict[str, Any]:
+    has_value = bool(item and str(item.value).strip())
+    value = "" if definition.is_secret else _deserialize_value(definition, item.value if item else None)
+    default_value = _mask_secret_default(definition) if definition.is_secret else definition.default
     return {
         "key": definition.key,
         "label": definition.label,
-        "value": _deserialize_value(definition, item.value if item else None),
-        "default_value": definition.default,
+        "value": value,
+        "default_value": default_value,
         "value_type": definition.value_type,
         "description": definition.description,
         "group": definition.group,
         "is_public": definition.is_public,
+        "is_secret": definition.is_secret,
+        "has_value": has_value,
         "min_value": definition.min_value,
         "max_value": definition.max_value,
         "options": list(definition.options) if definition.options else [],
@@ -310,6 +399,8 @@ def _deserialize_value(definition: ConfigDefinition, value: str | None) -> bool 
 
 def _normalize_value(definition: ConfigDefinition, value: bool | int | str | None) -> bool | int | str:
     if value is None:
+        if definition.value_type in ("str", "text") and definition.allow_empty:
+            return ""
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"配置项 {definition.key} 不能为空")
 
     try:
@@ -335,7 +426,7 @@ def _normalize_value(definition: ConfigDefinition, value: bool | int | str | Non
         normalized_text = str(value).strip().upper() if definition.key == "photo_target_format" else str(value).strip()
         if definition.options and normalized_text not in definition.options:
             raise ValueError
-        if not normalized_text:
+        if not normalized_text and not definition.allow_empty:
             raise ValueError
         return normalized_text
     except (TypeError, ValueError) as exc:
@@ -343,3 +434,17 @@ def _normalize_value(definition: ConfigDefinition, value: bool | int | str | Non
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"配置项 {definition.key} 的值不合法",
         ) from exc
+
+
+def _is_empty_value(value: bool | int | str | None) -> bool:
+    return value is None or (isinstance(value, str) and value.strip() == "")
+
+
+def _mask_secret_default(definition: ConfigDefinition) -> str:
+    return "已配置" if str(definition.default or "").strip() else ""
+
+
+def _build_audit_value(definition: ConfigDefinition, value: bool | int | str) -> bool | int | str:
+    if definition.is_secret:
+        return "已更新" if str(value).strip() else "保持不变"
+    return value

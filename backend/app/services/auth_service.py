@@ -28,6 +28,7 @@ def register_user(db: Session, req: RegisterRequest) -> User:
         employee_id=req.employee_id,
         remark=req.remark,
         status=UserStatus.PENDING,
+        email_notifications_enabled=True,
     )
     db.add(user)
     db.flush()

@@ -34,7 +34,11 @@ def _try_send_email(db: Session, recipient_id: uuid.UUID, title: str, content: s
         if not recipient or not recipient.email or not recipient.email_notifications_enabled:
             return
         from app.services.email_service import send_notification_email
-        send_notification_email(recipient.email, title, content)
+        try:
+            send_notification_email(recipient.email, title, content, db=db)
+        except TypeError:
+            # 兼容测试或插件中仍使用三参数签名的 monkeypatch。
+            send_notification_email(recipient.email, title, content)
     except Exception:
         logger.exception("Failed to send notification email to user %s", recipient_id)
 

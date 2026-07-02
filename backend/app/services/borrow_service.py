@@ -31,6 +31,13 @@ def _generate_order_no(db: Session) -> str:
     return f"{prefix}{seq:04d}"
 
 
+def _format_borrow_items_for_notification(items: list[BorrowOrderItem]) -> str:
+    return "、".join(
+        f"{item.asset_name_snapshot}（{item.asset_code_snapshot}）"
+        for item in items
+    )
+
+
 def create_borrow_order(
     db: Session,
     applicant: User,
@@ -88,6 +95,7 @@ def create_borrow_order(
 
     # 创建明细 + 按管理员分组
     admin_items: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    order_items_by_id: dict[uuid.UUID, BorrowOrderItem] = {}
     for a in assets:
         loc_name = a.location.name if a.location else None
         admin_name = a.admin.full_name if a.admin else ""
@@ -102,6 +110,7 @@ def create_borrow_order(
         )
         db.add(item)
         db.flush()
+        order_items_by_id[item.id] = item
         admin_items[a.admin_id].append(item.id)
 
         # 设备状态 → 待借出审核
@@ -129,12 +138,15 @@ def create_borrow_order(
     )
 
     # 通知各管理员有新借用审批
-    for approver_id in admin_items.keys():
+    for approver_id, item_ids in admin_items.items():
+        item_text = _format_borrow_items_for_notification(
+            [order_items_by_id[item_id] for item_id in item_ids if item_id in order_items_by_id]
+        )
         notification_service.create(
             db,
             recipient_id=approver_id,
-            title="新借用单待审批",
-            content=f"用户 {applicant.full_name} 提交了借用单 {order_no}，包含 {len(admin_items[approver_id])} 件您负责的设备，请尽快审批。",
+            title="借出待审核",
+            content=f"{applicant.full_name} 申请借用 {item_text}。单号：{order_no}，请及时审批。",
             notification_type="BORROW",
             related_type="BorrowOrder",
             related_id=order.id,

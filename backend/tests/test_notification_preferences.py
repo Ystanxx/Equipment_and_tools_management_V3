@@ -139,6 +139,44 @@ def test_notification_email_escapes_html(monkeypatch):
     assert "&lt;script&gt;" in captured["body_html"]
 
 
+def test_notification_email_uses_configured_template(client, db, monkeypatch):
+    _, admin_headers = _create_active_user(db, client, "template_admin", UserRole.SUPER_ADMIN)
+    update = client.put(
+        "/api/v1/system-configs",
+        headers=admin_headers,
+        json={
+            "values": {
+                "smtp_notification_template": "【{title}】\n{content}\n请及时处理。",
+            }
+        },
+    )
+    assert update.status_code == 200
+
+    captured = {}
+
+    def fake_send_email(to_email: str, subject: str, body_text: str, body_html: str | None = None, **kwargs):
+        captured["to_email"] = to_email
+        captured["subject"] = subject
+        captured["body_text"] = body_text
+        captured["body_html"] = body_html
+        captured["has_db"] = kwargs.get("db") is not None
+        return True
+
+    monkeypatch.setattr(email_service, "send_email", fake_send_email)
+
+    result = email_service.send_notification_email(
+        "receiver@test.com",
+        "借用提醒",
+        "请审批新的借用单",
+        db=db,
+    )
+
+    assert result is True
+    assert captured["body_text"] == "【借用提醒】\n请审批新的借用单\n请及时处理。"
+    assert "【借用提醒】" in captured["body_html"]
+    assert captured["has_db"] is True
+
+
 def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, monkeypatch):
     _, super_headers = _create_active_user(db, client, "deliver_super", UserRole.SUPER_ADMIN)
     asset_admin, admin_headers = _create_active_user(db, client, "deliver_asset_admin", UserRole.ASSET_ADMIN)
@@ -189,6 +227,13 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
     assert order_response.status_code == 200
     order_data = order_response.json()["data"]
     task_id = order_data["approval_tasks"][0]["id"]
+    assert sent_messages == [
+        (
+            asset_admin.email,
+            "借出待审核",
+            f"{applicant.full_name} 申请借用 交付通知测试设备（{order_data['items'][0]['asset_code_snapshot']}）。单号：{order_data['order_no']}，请及时审批。",
+        )
+    ]
 
     approve_response = client.post(
         f"/api/v1/borrow-approval-tasks/{task_id}/approve",
@@ -209,5 +254,35 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
             applicant.email,
             "借用设备已确认交付",
             f"管理员 {asset_admin.full_name} 已确认交付借用单 {order_data['order_no']}，共 1 件设备。",
+        )
+    ]
+
+    sent_messages.clear()
+    borrow_detail = client.get(
+        f"/api/v1/borrow-orders/{order_data['id']}",
+        headers=applicant_headers,
+    ).json()["data"]
+    return_response = client.post(
+        "/api/v1/return-orders",
+        headers=applicant_headers,
+        json={
+            "borrow_order_id": order_data["id"],
+            "items": [
+                {
+                    "borrow_order_item_id": borrow_detail["items"][0]["id"],
+                    "asset_id": borrow_detail["items"][0]["asset_id"],
+                    "condition": "GOOD",
+                }
+            ],
+        },
+    )
+
+    assert return_response.status_code == 200
+    return_data = return_response.json()["data"]
+    assert sent_messages == [
+        (
+            asset_admin.email,
+            "归还待审核",
+            f"{applicant.full_name} 申请归还 交付通知测试设备（{borrow_detail['items'][0]['asset_code_snapshot']}，完好）。单号：{return_data['order_no']}，请及时审批。",
         )
     ]

@@ -405,6 +405,7 @@ const Api = {
   // System Configs
   listSystemConfigs() { return this.get('/system-configs'); },
   updateSystemConfigs(values) { return this.put('/system-configs', { values }); },
+  testSystemConfigEmail(toEmail) { return this.post('/system-configs/test-email', { to_email: toEmail || null }); },
   async bootstrapSystemConfigs() {
     if (!this.getToken()) {
       this.clearSystemConfigCache();
@@ -413,7 +414,7 @@ const Api = {
     try {
       const res = await this.listSystemConfigs();
       const cache = {};
-      (res.data || []).forEach(item => { cache[item.key] = item.value; });
+      (res.data || []).filter(item => item.is_public).forEach(item => { cache[item.key] = item.value; });
       this.setSystemConfigCache(cache);
       return cache;
     } catch (error) {
