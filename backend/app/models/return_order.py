@@ -24,6 +24,7 @@ class ReturnOrder(Base):
     )
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

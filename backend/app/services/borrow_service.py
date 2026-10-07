@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
@@ -18,6 +19,7 @@ def _generate_order_no(db: Session) -> str:
     """生成借用单号: BO-YYYYMMDD-XXXX"""
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     prefix = f"BO-{today}-"
+    db.execute(text("SELECT pg_advisory_xact_lock(81476001)"))
     last = (
         db.query(BorrowOrder)
         .filter(BorrowOrder.order_no.like(f"{prefix}%"))
@@ -60,7 +62,7 @@ def create_borrow_order(
         raise HTTPException(status_code=400, detail="当前系统要求必须填写预计归还时间")
 
     # 查询并锁定设备
-    assets = db.query(Asset).filter(Asset.id.in_(asset_ids)).all()
+    assets = db.query(Asset).filter(Asset.id.in_(asset_ids)).order_by(Asset.id).with_for_update(of=Asset).populate_existing().all()
     if len(assets) != len(asset_ids):
         raise HTTPException(status_code=404, detail="部分设备不存在")
 
@@ -182,7 +184,16 @@ def user_can_manage_borrow_order(order: BorrowOrder, user: User) -> bool:
     if user.role != UserRole.ASSET_ADMIN:
         return False
     items = order.items or []
-    return bool(items) and all(item.admin_id_snapshot == user.id for item in items)
+    return any(item.admin_id_snapshot == user.id for item in items)
+
+
+def pending_delivery_items(order: BorrowOrder, user: User) -> list[BorrowOrderItem]:
+    if user.role not in (UserRole.SUPER_ADMIN, UserRole.ASSET_ADMIN):
+        return []
+    if order.status not in (BorrowOrderStatus.APPROVED, BorrowOrderStatus.READY_FOR_PICKUP):
+        return []
+    return [item for item in order.items if not item.delivered_at and
+            (user.role == UserRole.SUPER_ADMIN or item.admin_id_snapshot == user.id)]
 
 
 def list_borrow_orders(
@@ -208,6 +219,7 @@ def list_borrow_orders(
 
 
 def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> BorrowOrder:
+    db.query(BorrowOrder).filter(BorrowOrder.id == order_id).with_for_update(of=BorrowOrder).populate_existing().first()
     order = get_borrow_order(db, order_id)
 
     if not user_can_manage_borrow_order(order, deliverer):
@@ -216,15 +228,25 @@ def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> B
     if order.status not in (BorrowOrderStatus.APPROVED, BorrowOrderStatus.READY_FOR_PICKUP):
         raise HTTPException(status_code=400, detail=f"当前状态 {order.status.value} 不可确认交付")
 
-    order.status = BorrowOrderStatus.DELIVERED
-    order.delivered_at = datetime.now(timezone.utc)
-    order.delivered_by = deliverer.id
+    pending_items = pending_delivery_items(order, deliverer)
+    if not pending_items:
+        raise HTTPException(status_code=400, detail="您负责的设备已确认交付，请等待其他管理员")
+    now = datetime.now(timezone.utc)
 
     # 设备状态 → 已借出
-    for item in order.items:
+    for item in pending_items:
+        item.delivered_at = now
+        item.delivered_by = deliverer.id
         asset = db.query(Asset).filter(Asset.id == item.asset_id).first()
         if asset:
             asset.status = AssetStatus.BORROWED
+
+    if all(item.delivered_at for item in order.items):
+        order.status = BorrowOrderStatus.DELIVERED
+        order.delivered_at = now
+        order.delivered_by = deliverer.id
+    order.updated_at = now
+    db.flush()
 
     equipment_order_service.sync_from_borrow_order(db, order.id)
     audit_service.log(
@@ -235,13 +257,13 @@ def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> B
         order.id,
         equipment_order_id=order.equipment_order_id,
         order_id=order.id,
-        description=f"确认交付借用单 {order.order_no}",
+        description=f"确认交付借用单 {order.order_no}，本次 {len(pending_items)} 件",
     )
     notification_service.create(
         db,
         recipient_id=order.applicant_id,
         title="借用设备已确认交付",
-        content=f"管理员 {deliverer.full_name} 已确认交付借用单 {order.order_no}，共 {order.item_count} 件设备。",
+        content=f"管理员 {deliverer.full_name} 已确认交付借用单 {order.order_no} 的 {len(pending_items)} 件设备；累计 {sum(bool(i.delivered_at) for i in order.items)}/{order.item_count} 件。",
         notification_type="BORROW",
         related_type="BorrowOrder",
         related_id=order.id,

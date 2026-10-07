@@ -11,11 +11,11 @@ Router.register('login', async () => {
         </div>
         <div class="auth-form">
           <div class="form-group">
-            <label class="form-label">用户名</label>
+            <label class="form-label" for="login-username">用户名</label>
             <input type="text" id="login-username" class="form-input" placeholder="请输入用户名">
           </div>
           <div class="form-group">
-            <label class="form-label">密码</label>
+            <label class="form-label" for="login-password">密码</label>
             <input type="password" id="login-password" class="form-input" placeholder="请输入密码">
           </div>
           <div class="auth-form__remember">
@@ -33,7 +33,7 @@ Router.register('login', async () => {
           <a href="#register" class="text-sm text-accent">还没有账号？注册新用户</a>
         </div>
       </div>
-          <p class="login-page__copyright text-xs text-muted">当前版本 v1.7.6</p>
+          <p class="login-page__copyright text-xs text-muted">当前版本 v1.7.11</p>
     </div>`;
 
   // Bind login
@@ -360,6 +360,8 @@ function handleLogout() {
   if (typeof stopInventoryStateSync === 'function') {
     stopInventoryStateSync();
   }
+  _navigationLoadedAt = 0;
+  _navigationUserId = '';
   Api.clearToken();
   Api.clearUser();
   Router.navigate('login');

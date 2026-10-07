@@ -20,6 +20,8 @@ class BorrowOrderItem(Base):
     admin_id_snapshot: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     admin_name_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
     location_name_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    delivered_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
     order = relationship("BorrowOrder", back_populates="items")

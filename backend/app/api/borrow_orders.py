@@ -19,7 +19,7 @@ from app.utils.enums import UserRole
 router = APIRouter(prefix="/borrow-orders", tags=["借用单"])
 
 
-def _order_to_out(order) -> BorrowOrderOut:
+def _order_to_out(order, user=None) -> BorrowOrderOut:
     return BorrowOrderOut(
         id=order.id,
         equipment_order_id=order.equipment_order_id,
@@ -30,6 +30,9 @@ def _order_to_out(order) -> BorrowOrderOut:
         purpose=order.purpose,
         expected_return_date=order.expected_return_date,
         item_count=order.item_count,
+        can_deliver=bool(borrow_service.pending_delivery_items(order, user)) if user else False,
+        pending_deliver_count=len(borrow_service.pending_delivery_items(order, user)) if user else 0,
+        handoff_completed_count=sum(bool(i.delivered_at) for i in order.items),
         remark=order.remark,
         delivered_at=order.delivered_at,
         delivered_by=order.delivered_by,
@@ -42,6 +45,7 @@ def _order_to_out(order) -> BorrowOrderOut:
                 asset_code_snapshot=i.asset_code_snapshot,
                 asset_name_snapshot=i.asset_name_snapshot,
                 admin_name_snapshot=i.admin_name_snapshot,
+                delivered_at=i.delivered_at,
                 location_name_snapshot=i.location_name_snapshot,
                 created_at=i.created_at,
             )
@@ -78,7 +82,7 @@ def create_order(
         expected_return_date=body.expected_return_date,
         remark=body.remark,
     )
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))
 
 
 @router.get("", summary="借用单列表")
@@ -110,6 +114,10 @@ def list_orders(
             applicant_name=o.applicant.full_name if o.applicant else None,
             status=o.status.value if hasattr(o.status, "value") else o.status,
             item_count=o.item_count,
+            can_deliver=bool(borrow_service.pending_delivery_items(o, user)),
+            pending_deliver_count=len(borrow_service.pending_delivery_items(o, user)),
+            handoff_completed_count=sum(bool(i.delivered_at) for i in o.items),
+            items=[BorrowOrderItemOut.model_validate(i) for i in o.items] if managed else [],
             created_at=o.created_at,
         )
         for o in items
@@ -126,7 +134,7 @@ def get_order(
     order = borrow_service.get_borrow_order(db, order_id)
     if not borrow_service.user_can_access_borrow_order(order, user):
         raise HTTPException(status_code=403, detail="无权查看该借用单")
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))
 
 
 @router.post("/{order_id}/deliver", summary="确认交付")
@@ -136,7 +144,7 @@ def deliver_order(
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     order = borrow_service.deliver_borrow_order(db, order_id, user)
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))
 
 
 @router.post("/{order_id}/cancel", summary="取消借用单")
@@ -146,4 +154,4 @@ def cancel_order(
     user: User = Depends(get_active_user),
 ):
     order = borrow_service.cancel_borrow_order(db, order_id, user)
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))

@@ -73,6 +73,7 @@ class AssetOut(BaseModel):
 class AssetLiveStateOut(BaseModel):
     asset_version: str | None = None
     updated_asset_count: int = 0
+    workflow_version: str | None = None
 
 
 class AssetSearchIndexItem(BaseModel):

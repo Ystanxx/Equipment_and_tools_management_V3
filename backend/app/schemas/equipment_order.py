@@ -27,6 +27,9 @@ class EquipmentOrderApprovalTaskOut(BaseModel):
 
 
 class EquipmentOrderBorrowStageOut(BaseModel):
+    can_deliver: bool = False
+    pending_deliver_count: int = 0
+    handoff_completed_count: int = 0
     id: UUID
     order_no: str
     status: str
@@ -51,6 +54,9 @@ class EquipmentOrderReturnItemOut(BaseModel):
 
 
 class EquipmentOrderReturnBatchOut(BaseModel):
+    can_stock_in: bool = False
+    pending_stock_in_count: int = 0
+    handoff_completed_count: int = 0
     id: UUID
     order_no: str
     status: str

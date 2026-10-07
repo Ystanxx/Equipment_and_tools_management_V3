@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
@@ -20,13 +21,14 @@ from app.utils.enums import (
     ApprovalTaskStatus,
     UserRole,
 )
-from app.services import audit_service, equipment_order_service, notification_service
+from app.services import audit_service, equipment_order_service, notification_service, attachment_service
 
 
 def _generate_return_order_no(db: Session) -> str:
     """生成归还单号: RO-YYYYMMDD-XXXX"""
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     prefix = f"RO-{today}-"
+    db.execute(text("SELECT pg_advisory_xact_lock(81476002)"))
     last = (
         db.query(ReturnOrder)
         .filter(ReturnOrder.order_no.like(f"{prefix}%"))
@@ -125,16 +127,42 @@ def create_return_order(
     borrow_order_id: uuid.UUID,
     items_input: list[dict],
     remark: str | None = None,
+    submission_id: uuid.UUID | None = None,
 ) -> ReturnOrder:
-    borrow_order = db.query(BorrowOrder).filter(BorrowOrder.id == borrow_order_id).first()
+    created_files = []
+    try:
+        return _create_return_order(db, applicant, borrow_order_id, items_input, remark, submission_id, created_files)
+    except Exception:
+        db.rollback()
+        for path in created_files:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def _create_return_order(db, applicant, borrow_order_id, items_input, remark, submission_id, created_files):
+    borrow_order = db.query(BorrowOrder).filter(BorrowOrder.id == borrow_order_id).with_for_update(of=BorrowOrder).populate_existing().first()
     if not borrow_order:
         raise HTTPException(status_code=404, detail="借用单不存在")
     if borrow_order.applicant_id != applicant.id:
         raise HTTPException(status_code=403, detail="只能归还自己的借用单")
+    if submission_id:
+        existing = db.query(ReturnOrder).filter(ReturnOrder.submission_id == submission_id).first()
+        if existing:
+            if existing.applicant_id != applicant.id or existing.borrow_order_id != borrow_order_id:
+                raise HTTPException(status_code=409, detail="提交标识已使用，请重新打开归还页面")
+            return existing
     if borrow_order.status not in (BorrowOrderStatus.DELIVERED, BorrowOrderStatus.PARTIALLY_RETURNED):
         raise HTTPException(status_code=400, detail=f"借用单状态 {borrow_order.status.value} 不可归还")
+    if submission_id and any(not item.get('staged_photo_tokens') for item in items_input):
+        raise HTTPException(status_code=400, detail="请为每件归还设备上传照片")
 
     already_returned = _get_already_returned_asset_ids(db, borrow_order_id)
+    item_ids = [item['borrow_order_item_id'] for item in items_input]
+    if len(item_ids) != len(set(item_ids)):
+        raise HTTPException(status_code=400, detail="归还清单存在重复设备")
+    tokens = [str(t) for item in items_input for t in (item.get('staged_photo_tokens') or [])]
+    if len(tokens) != len(set(tokens)):
+        raise HTTPException(status_code=400, detail="同一张照片不能重复用于不同明细")
 
     # 校验明细
     borrow_item_map: dict[uuid.UUID, BorrowOrderItem] = {
@@ -150,6 +178,7 @@ def create_return_order(
         status=ReturnOrderStatus.PENDING_APPROVAL,
         item_count=len(items_input),
         remark=remark,
+        submission_id=submission_id,
     )
     db.add(return_order)
     db.flush()
@@ -163,6 +192,8 @@ def create_return_order(
             raise HTTPException(status_code=400, detail=f"明细 {inp['borrow_order_item_id']} 不属于该借用单")
         if bi.asset_id in already_returned:
             raise HTTPException(status_code=400, detail=f"设备 {bi.asset_code_snapshot} 已在其他归还单中")
+        if inp['asset_id'] != bi.asset_id:
+            raise HTTPException(status_code=400, detail="设备与借用明细不匹配")
 
         condition = ReturnItemCondition(inp["condition"])
         damage_type_val = inp.get("damage_type")
@@ -182,6 +213,11 @@ def create_return_order(
         )
         db.add(ri)
         db.flush()
+        for token in inp.get('staged_photo_tokens') or []:
+            attachment_service.finalize_staged_attachment(
+                db, stage_token=str(token), related_type='ReturnOrderItem', related_id=ri.id,
+                user=applicant, commit=False, created_files=created_files,
+            )
         return_items_by_id[ri.id] = ri
         admin_items[bi.admin_id_snapshot].append(ri.id)
 
@@ -228,12 +264,20 @@ def create_return_order(
         )
 
     db.commit()
+    # Once committed, a later refresh/cleanup failure must not delete persisted photos.
+    created_files.clear()
     db.refresh(return_order)
+    for token in tokens:
+        try:
+            attachment_service._cleanup_staged_attachment(token)
+        except OSError:
+            attachment_service.logger.warning("临时照片清理失败，将由定时任务重试")
     return return_order
 
 
 def stock_in_return_order(db: Session, return_order_id: uuid.UUID, operator: User) -> ReturnOrder:
     """归还审批完成后，管理员确认入库。"""
+    db.query(ReturnOrder).filter(ReturnOrder.id == return_order_id).with_for_update(of=ReturnOrder).populate_existing().first()
     order = get_return_order(db, return_order_id)
 
     if not user_can_manage_return_order(order, operator):
@@ -243,7 +287,12 @@ def stock_in_return_order(db: Session, return_order_id: uuid.UUID, operator: Use
         raise HTTPException(status_code=400, detail=f"归还单状态 {order.status.value} 不可确认入库")
 
     has_loss_or_damage = False
-    for item in order.items:
+    pending_items = pending_stock_in_items(order, operator)
+    if not pending_items:
+        raise HTTPException(status_code=400, detail="您负责的设备已确认入库，请等待其他管理员")
+    for item in pending_items:
+        item.stocked_in_at = datetime.now(timezone.utc)
+        item.stocked_in_by = operator.id
         asset = db.query(Asset).filter(Asset.id == item.asset_id).first()
         if not asset:
             continue
@@ -257,7 +306,9 @@ def stock_in_return_order(db: Session, return_order_id: uuid.UUID, operator: Use
             asset.status = AssetStatus.DAMAGED
             has_loss_or_damage = True
 
-    order.status = ReturnOrderStatus.COMPLETED
+    if all(item.stocked_in_at for item in order.items):
+        order.status = ReturnOrderStatus.COMPLETED
+    order.updated_at = datetime.now(timezone.utc)
     db.flush()
     sync_borrow_order_after_return(db, order.borrow_order_id)
     equipment_order_service.sync_after_return_order(db, order.id)
@@ -270,14 +321,14 @@ def stock_in_return_order(db: Session, return_order_id: uuid.UUID, operator: Use
         order.id,
         equipment_order_id=order.equipment_order_id,
         order_id=order.id,
-        description=f"已入库归还单 {order.order_no}，共 {order.item_count} 件",
+        description=f"已入库归还单 {order.order_no}，本次 {len(pending_items)} 件",
     )
 
     notification_service.create(
         db,
         recipient_id=order.applicant_id,
-        title="归还单已完成入库",
-        content=f"您的归还单 {order.order_no} 已完成入库，订单状态已更新。",
+        title="归还单已完成入库" if order.status == ReturnOrderStatus.COMPLETED else "归还单部分入库",
+        content=f"您的归还单 {order.order_no} 已入库 {sum(bool(i.stocked_in_at) for i in order.items)}/{order.item_count} 件，订单状态已更新。",
         notification_type="RETURN",
         related_type="ReturnOrder",
         related_id=order.id,
@@ -323,7 +374,14 @@ def user_can_manage_return_order(order: ReturnOrder, user: User) -> bool:
     if user.role != UserRole.ASSET_ADMIN:
         return False
     items = order.items or []
-    return bool(items) and all(item.admin_id_snapshot == user.id for item in items)
+    return any(item.admin_id_snapshot == user.id for item in items)
+
+
+def pending_stock_in_items(order: ReturnOrder, user: User) -> list[ReturnOrderItem]:
+    if user.role not in (UserRole.SUPER_ADMIN, UserRole.ASSET_ADMIN) or order.status != ReturnOrderStatus.APPROVED:
+        return []
+    return [item for item in order.items if not item.stocked_in_at and
+            (user.role == UserRole.SUPER_ADMIN or item.admin_id_snapshot == user.id)]
 
 
 def list_return_orders(

@@ -19,7 +19,7 @@ from app.utils.enums import UserRole
 router = APIRouter(prefix="/return-orders", tags=["归还单"])
 
 
-def _order_to_out(order) -> ReturnOrderOut:
+def _order_to_out(order, user=None) -> ReturnOrderOut:
     return ReturnOrderOut(
         id=order.id,
         equipment_order_id=order.equipment_order_id,
@@ -30,6 +30,9 @@ def _order_to_out(order) -> ReturnOrderOut:
         applicant_name=order.applicant.full_name if order.applicant else None,
         status=order.status.value if hasattr(order.status, "value") else order.status,
         item_count=order.item_count,
+        can_stock_in=bool(return_service.pending_stock_in_items(order, user)) if user else False,
+        pending_stock_in_count=len(return_service.pending_stock_in_items(order, user)) if user else 0,
+        handoff_completed_count=sum(bool(i.stocked_in_at) for i in order.items),
         remark=order.remark,
         created_at=order.created_at,
         updated_at=order.updated_at,
@@ -41,6 +44,7 @@ def _order_to_out(order) -> ReturnOrderOut:
                 asset_code_snapshot=i.asset_code_snapshot,
                 asset_name_snapshot=i.asset_name_snapshot,
                 admin_name_snapshot=i.admin_name_snapshot,
+                stocked_in_at=i.stocked_in_at,
                 condition=i.condition.value if hasattr(i.condition, "value") else i.condition,
                 damage_type=i.damage_type.value if i.damage_type and hasattr(i.damage_type, "value") else i.damage_type,
                 damage_description=i.damage_description,
@@ -78,8 +82,9 @@ def create_order(
         borrow_order_id=body.borrow_order_id,
         items_input=items_data,
         remark=body.remark,
+        submission_id=body.submission_id,
     )
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))
 
 
 @router.get("", summary="归还单列表")
@@ -114,6 +119,9 @@ def list_orders(
             applicant_name=o.applicant.full_name if o.applicant else None,
             status=o.status.value if hasattr(o.status, "value") else o.status,
             item_count=o.item_count,
+            can_stock_in=bool(return_service.pending_stock_in_items(o, user)),
+            pending_stock_in_count=len(return_service.pending_stock_in_items(o, user)),
+            handoff_completed_count=sum(bool(i.stocked_in_at) for i in o.items),
             created_at=o.created_at,
         )
         for o in items
@@ -130,7 +138,7 @@ def get_order(
     order = return_service.get_return_order(db, order_id)
     if not return_service.user_can_access_return_order(order, user):
         raise HTTPException(status_code=403, detail="无权查看该归还单")
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))
 
 
 @router.post("/{order_id}/stock-in", summary="确认入库")
@@ -140,4 +148,4 @@ def stock_in_order(
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     order = return_service.stock_in_return_order(db, order_id, user)
-    return ResponseSchema(data=_order_to_out(order))
+    return ResponseSchema(data=_order_to_out(order, user))

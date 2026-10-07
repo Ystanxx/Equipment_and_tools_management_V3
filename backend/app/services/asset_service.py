@@ -220,6 +220,7 @@ def get_asset_live_state(db: Session) -> dict[str, str | int | None]:
     return {
         "asset_version": latest_updated_at.isoformat() if latest_updated_at else None,
         "updated_asset_count": active_count,
+        "workflow_version": str(db.query(func.max(AuditLog.created_at)).scalar() or ''),
     }
 
 

@@ -38,7 +38,7 @@ Router.register('asset-list', async (params) => {
     summaryTotal = summaryRes.data.total;
     stockCount = stockRes.data.total;
   } catch (e) {
-    console.error(e);
+    throw e;
   }
 
   renderBorrowAssetList(app, assets, total, page, pageSize, keyword, statusFilter, categoryId, user, {
@@ -70,7 +70,7 @@ Router.register('managed-assets', async (params) => {
     assets = res.data.items;
     total = res.data.total;
   } catch (e) {
-    console.error(e);
+    throw e;
   }
 
   renderManagedAssetList(app, assets, total, page, pageSize, keyword, statusFilter, user);
@@ -129,19 +129,19 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
         </div>
 
         <div class="borrow-browser__filters borrow-browser__filters--card chip-row">
-          <span class="chip ${!statusFilter ? 'chip--active' : 'chip--outline'}" data-status="">全部</span>
-          <span class="chip ${statusFilter === 'IN_STOCK' ? 'chip--active' : 'chip--outline'}" data-status="IN_STOCK">在库</span>
-          <span class="chip ${statusFilter === 'BORROWED' ? 'chip--active' : 'chip--outline'}" data-status="BORROWED">借出</span>
+          <button type="button" class="chip ${!statusFilter ? 'chip--active' : 'chip--outline'}" data-status="">全部</button>
+          <button type="button" class="chip ${statusFilter === 'IN_STOCK' ? 'chip--active' : 'chip--outline'}" data-status="IN_STOCK">在库</button>
+          <button type="button" class="chip ${statusFilter === 'BORROWED' ? 'chip--active' : 'chip--outline'}" data-status="BORROWED">借出</button>
         </div>
 
         <div class="borrow-browser__filters borrow-browser__filters--card chip-row" style="margin-top:6px;">
-          <span class="chip ${!categoryId ? 'chip--active' : 'chip--outline'}" data-category="">全部分类</span>
-          ${categories.map(c => `<span class="chip ${categoryId === String(c.id) ? 'chip--active' : 'chip--outline'}" data-category="${c.id}">${Utils.escapeHtml(c.name)}</span>`).join('')}
+          <button type="button" class="chip ${!categoryId ? 'chip--active' : 'chip--outline'}" data-category="">全部分类</button>
+          ${categories.map(c => `<button type="button" class="chip ${categoryId === String(c.id) ? 'chip--active' : 'chip--outline'}" data-category="${c.id}">${Utils.escapeHtml(c.name)}</button>`).join('')}
         </div>
       </div>
 
       <div class="asset-grid asset-grid--borrow">
-        ${assets.length === 0 ? '<div class="empty-state" style="grid-column:1/-1;"><p>暂无可借器材</p></div>' :
+        ${assets.length === 0 ? `<div class="empty-state" style="grid-column:1/-1;"><p>${keyword || statusFilter || categoryId ? '没有符合筛选条件的器材' : '暂无器材'}</p><button class="btn btn--outline" onclick="Router.navigate('asset-list')">清空筛选</button></div>` :
           assets.map(a => `
             <div class="asset-card asset-card--borrow" data-id="${a.id}">
               ${renderAssetMedia(a)}
@@ -171,9 +171,9 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
 
       ${totalPages > 1 ? `
         <div class="flex-center gap-sm borrow-browser__pagination">
-          ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}',category_id:'${categoryId}'})">上一页</button>` : ''}
+          ${page > 1 ? `<a class="btn btn--outline btn--sm" href="${Utils.escapeHtml(buildRouteHref('asset-list', {page: page - 1, page_size: pageSize, keyword, status: statusFilter, category_id: categoryId}))}">上一页</a>` : ''}
           <span class="text-sm text-muted">${page} / ${totalPages}</span>
-          ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('asset-list',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}',category_id:'${categoryId}'})">下一页</button>` : ''}
+          ${page < totalPages ? `<a class="btn btn--outline btn--sm" href="${Utils.escapeHtml(buildRouteHref('asset-list', {page: page + 1, page_size: pageSize, keyword, status: statusFilter, category_id: categoryId}))}">下一页</a>` : ''}
         </div>` : ''}
     </div>`;
 
@@ -309,6 +309,20 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
   });
 
   // Add to cart
+  const selectedIds = new Set(Api.getCart().map(item => item.id));
+  document.querySelectorAll('.add-cart-btn').forEach(button => {
+    if (selectedIds.has(button.dataset.id)) { button.disabled = true; button.textContent = '已添加'; }
+  });
+  const cartBar = document.createElement('a');
+  cartBar.href = '#borrow-cart';
+  cartBar.className = 'borrow-cart-shortcut btn btn--primary';
+  const updateCartBar = () => {
+    const count = Api.getCart().length;
+    cartBar.textContent = `已选 ${count} 件 · 去提交`;
+    cartBar.classList.toggle('hidden', count === 0);
+  };
+  updateCartBar();
+  app.appendChild(cartBar);
   document.querySelectorAll('.add-cart-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -322,6 +336,7 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
         Utils.showToast('已添加到借用单');
         btn.textContent = '已添加';
         btn.disabled = true;
+        updateCartBar();
       } else {
         Utils.showToast(`已在借用单中或借用单已满 (${maxItems})`, 'error');
       }
@@ -521,9 +536,9 @@ function renderPcAssetList(app, assets, total, page, pageSize, keyword, statusFi
         </div>
         ${totalPages > 1 ? `
           <div class="flex-center gap-sm">
-            ${page > 1 ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('${routeName}',{page:${page - 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">上一页</button>` : ''}
+            ${page > 1 ? `<a class="btn btn--outline btn--sm" href="${Utils.escapeHtml(buildRouteHref(routeName, {page: page - 1, page_size: pageSize, keyword, status: statusFilter}))}">上一页</a>` : ''}
             <span class="text-sm text-muted">${page} / ${totalPages}</span>
-            ${page < totalPages ? `<button class="btn btn--outline btn--sm" onclick="Router.navigate('${routeName}',{page:${page + 1},page_size:${pageSize},keyword:'${keyword}',status:'${statusFilter}'})">下一页</button>` : ''}
+            ${page < totalPages ? `<a class="btn btn--outline btn--sm" href="${Utils.escapeHtml(buildRouteHref(routeName, {page: page + 1, page_size: pageSize, keyword, status: statusFilter}))}">下一页</a>` : ''}
           </div>` : ''}
       </div>
 
@@ -635,7 +650,7 @@ Router.register('asset-detail', async (params) => {
           ${asset.status === 'IN_STOCK' ? `<button class="btn btn--primary btn--sm" id="detail-add-cart" data-id="${asset.id}" data-code="${Utils.escapeHtml(asset.asset_code)}" data-name="${Utils.escapeHtml(asset.name)}" data-loc="${Utils.escapeHtml(asset.location_name || '')}">加入借用清单</button>` : ''}
           ${canEditAsset ? `<button class="btn btn--secondary btn--sm" onclick="Router.navigate('asset-form',{id:'${asset.id}',from:'${fromRoute}'})">编辑</button>` : ''}
           ${user.role === 'SUPER_ADMIN' && asset.is_active ? `<button class="btn btn--danger btn--sm" id="asset-delete-btn">删除设备</button>` : ''}
-          <button class="btn btn--outline btn--sm" onclick="Router.navigate('${fromRoute}')">返回列表</button>
+          <button class="btn btn--outline btn--sm" onclick="Router.backToList('${fromRoute}')">返回列表</button>
         </div>
       </div>
 
@@ -889,7 +904,7 @@ Router.register('asset-form', async (params) => {
           <p class="page-header__desc">${isEdit ? '修改设备信息' : '填写设备信息并上传库存照片'}</p>
         </div>
         <div class="page-header__actions">
-          <button class="btn btn--outline btn--sm" onclick="Router.navigate('${fromRoute}')">返回列表</button>
+          <button class="btn btn--outline btn--sm" onclick="Router.backToList('${fromRoute}')">返回列表</button>
         </div>
       </div>
 

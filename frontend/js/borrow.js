@@ -45,18 +45,18 @@ Router.register('borrow-cart', async () => {
       <div class="card stack--lg" style="margin-top:24px;">
         <h3>借用信息</h3>
         <div class="form-group">
-          <label class="form-label">借用说明 / 用途 <span class="form-required">*必填</span></label>
+          <label class="form-label" for="cart-purpose">借用说明 / 用途${requirePurpose ? ' <span class="form-required">*必填</span>' : '（选填）'}</label>
           <textarea id="cart-purpose" class="form-textarea" placeholder="请说明借用原因和用途"></textarea>
         </div>
         <div class="form-group">
-          <label class="form-label">预计归还日期${requireExpectedReturnTime ? ' <span class="form-required">*必填</span>' : '（选填）'}</label>
+          <label class="form-label" for="cart-return-date">预计归还日期${requireExpectedReturnTime ? ' <span class="form-required">*必填</span>' : '（选填）'}</label>
           <input type="date" id="cart-return-date" class="form-input" style="max-width:100%;box-sizing:border-box;">
         </div>
         <div class="form-group">
-          <label class="form-label">备注（选填）</label>
+          <label class="form-label" for="cart-remark">备注（选填）</label>
           <textarea id="cart-remark" class="form-textarea" placeholder="其他信息"></textarea>
         </div>
-        <div id="cart-error" class="sr-only" aria-live="polite"></div>
+        <div id="cart-error" class="form-error" aria-live="polite"></div>
         <button id="cart-submit" class="btn btn--primary btn--full">提交借用单 (${cart.length} 件)</button>
       </div>
     `}`;
@@ -71,9 +71,25 @@ Router.register('borrow-cart', async () => {
     app.innerHTML = renderUserLayout('borrow-cart', bodyHtml);
   }
 
+  const draft = Api.getBorrowDraft();
+  const draftFields = {purpose: 'cart-purpose', returnDate: 'cart-return-date', remark: 'cart-remark'};
+  const saveDraft = () => {
+    const values = {};
+    Object.entries(draftFields).forEach(([key, id]) => { values[key] = document.getElementById(id)?.value || ''; });
+    Api.saveBorrowDraft(values);
+  };
+  Object.entries(draftFields).forEach(([key, id]) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    field.value = draft[key] || '';
+    field.addEventListener('input', saveDraft);
+    field.addEventListener('change', saveDraft);
+  });
+
   // Remove from cart
   document.querySelectorAll('.cart-remove-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      saveDraft();
       Api.removeFromCart(btn.dataset.id);
       Router.navigate('borrow-cart');
     });
@@ -90,11 +106,13 @@ Router.register('borrow-cart', async () => {
       const returnDate = document.getElementById('cart-return-date').value || null;
       const remark = document.getElementById('cart-remark').value.trim() || null;
 
-      if (!purpose) {
+      if (requirePurpose && !purpose) {
+        document.getElementById('cart-purpose').focus();
         showBorrowCartToast(errEl, '请填写借用说明/用途');
         return;
       }
       if (requireExpectedReturnTime && !returnDate) {
+        document.getElementById('cart-return-date').focus();
         showBorrowCartToast(errEl, '当前系统要求填写预计归还日期');
         return;
       }
@@ -148,6 +166,7 @@ function bindClickableApprovalCards(selector, onActivate) {
       activate();
     });
     card.addEventListener('keydown', (event) => {
+      if (event.target !== card) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       activate();
@@ -195,11 +214,35 @@ function renderTimelineHtml(events) {
     </div>`;
 }
 
+function bindApprovalDialog(overlay, canClose = () => true) {
+  const previousFocus = document.activeElement;
+  const dialog = overlay.querySelector('.modal');
+  dialog.setAttribute('tabindex', '-1');
+  const close = () => {
+    if (!canClose()) return;
+    overlay.remove();
+    if (previousFocus?.isConnected) previousFocus.focus();
+  };
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    if (event.key !== 'Tab') return;
+    const nodes = [...overlay.querySelectorAll('button:not(:disabled), textarea, input, select, a[href]')].filter(el => el.getClientRects().length);
+    const first = nodes[0] || dialog, last = nodes[nodes.length - 1] || dialog;
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
+      event.preventDefault(); first.focus();
+    }
+  });
+  (overlay.querySelector('textarea') || overlay.querySelector('.modal__close') || dialog).focus();
+  return close;
+}
+
 function openApprovalPanel({ title, subtitle = '', statusLabel = '', statusClass = '', bodyHtml = '', footerHtml = '' }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay modal-overlay--panel';
   overlay.innerHTML = `
-    <div class="modal approval-panel" role="dialog" aria-modal="true">
+    <div class="modal approval-panel" role="dialog" aria-modal="true" aria-label="${Utils.escapeHtml(title)}">
       <div class="approval-panel__header">
         <div class="approval-panel__header-copy">
           <div class="approval-panel__eyebrow">审批详情</div>
@@ -218,7 +261,7 @@ function openApprovalPanel({ title, subtitle = '', statusLabel = '', statusClass
     </div>`;
   document.body.appendChild(overlay);
 
-  const close = () => overlay.remove();
+  const close = bindApprovalDialog(overlay);
   overlay.querySelector('.modal__close').addEventListener('click', close);
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) close();
@@ -226,10 +269,17 @@ function openApprovalPanel({ title, subtitle = '', statusLabel = '', statusClass
   return { overlay, close };
 }
 
+function buildBorrowApprovalParams(currentStatus, currentPage = 1) {
+  const nextParams = {};
+  if (currentStatus) nextParams.status = currentStatus;
+  if (currentPage > 1) nextParams.page = currentPage;
+  return nextParams;
+}
+
 async function openBorrowApprovalPanel(task, params = {}) {
   const user = Api.getUser();
   const isAdmin = user && (user.role === 'ASSET_ADMIN' || user.role === 'SUPER_ADMIN');
-  const statusFilter = params.status || 'ALL';
+  const statusFilter = params.status || 'PENDING';
   const page = parseInt(params.page, 10) || 1;
 
   const [orderRes, timelineRes, photoRes] = await Promise.all([
@@ -263,7 +313,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
   const currentTask = (order.approval_tasks || []).find(t => t.id === task.id) || task;
   const currentTaskMeta = taskStatusMap[currentTask.status] || { label: currentTask.status, class: '' };
   const canApproveTask = isAdmin && currentTask.status === 'PENDING' && (currentTask.approver_id === user.id || user.role === 'SUPER_ADMIN');
-  const canDeliver = isAdmin && (order.status === 'READY_FOR_PICKUP' || order.status === 'APPROVED');
+  const canDeliver = Boolean(order.can_deliver);
 
   const itemRows = (order.items || []).map(item => `
     <div class="approval-panel__item">
@@ -280,6 +330,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
 
   const bodyHtml = `
     <div class="approval-panel__section">
+      <p class="text-sm text-muted">交付进度：${order.handoff_completed_count || 0}/${order.item_count} 件</p>
       <div class="approval-panel__grid">
         <div class="approval-panel__field"><span class="approval-panel__label">申请人</span><span class="approval-panel__value">${Utils.escapeHtml(order.applicant_name || '-')}</span></div>
         <div class="approval-panel__field"><span class="approval-panel__label">创建时间</span><span class="approval-panel__value">${Utils.formatDateTime(order.created_at)}</span></div>
@@ -364,7 +415,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
   });
 
   panel.overlay.querySelector('.approval-panel-deliver-btn')?.addEventListener('click', () => {
-    _showApprovalModal('确认交付', `确认 ${order.item_count} 件设备已线下交付给 ${order.applicant_name || '申请人'}？`, async () => {
+    _showApprovalModal('确认交付', `确认本次负责的 ${order.pending_deliver_count} 件设备已线下交付给 ${order.applicant_name || '申请人'}？`, async () => {
       await Api.deliverBorrowOrder(order.id);
       panel.close();
       Utils.showToast('已确认交付');
@@ -549,7 +600,7 @@ Router.register('order-detail', async (params) => {
 
   const statusMeta = equipmentOrderStatusMap[order.status] || { label: order.status, class: '' };
   const borrowStage = order.borrow_order;
-  const canDeliver = isAdmin && borrowStage && order.status === 'READY_FOR_PICKUP';
+  const canDeliver = Boolean(borrowStage?.can_deliver);
   const canCancel = borrowStage && order.applicant_id === user.id && order.status === 'PENDING_BORROW_APPROVAL' && borrowStage.status === 'PENDING_APPROVAL';
   const canReturn = borrowStage && order.applicant_id === user.id && ['BORROWED', 'PARTIALLY_RETURNED', 'RETURN_REJECTED'].includes(order.status);
 
@@ -637,12 +688,12 @@ Router.register('order-detail', async (params) => {
                         ? 'PENDING_STOCK_IN'
                         : 'PENDING_RETURN_APPROVAL';
                   const batchStatusMeta = equipmentOrderStatusMap[batchStatusKey] || { label: batch.status, class: '' };
-                  const canStockInBatch = isAdmin && batch.status === 'APPROVED';
+                  const canStockInBatch = Boolean(batch.can_stock_in);
                   return `
                     <div class="order-batch-card">
                       <div class="order-batch-card__copy">
                         <div class="order-batch-card__name">${Utils.escapeHtml(batch.order_no)}</div>
-                        <div class="order-batch-card__meta">${batch.item_count} 件器材 · ${Utils.formatDateTime(batch.created_at)}</div>
+                        <div class="order-batch-card__meta">${batch.item_count} 件器材 · 已入库 ${batch.handoff_completed_count || 0}/${batch.item_count} 件 · ${Utils.formatDateTime(batch.created_at)}</div>
                         <div class="order-batch-card__meta">${batch.items.map(item => {
                           const cm = returnItemConditionMap[item.condition] || { label: item.condition, class: '' };
                           return `${Utils.escapeHtml(item.asset_code_snapshot)}（${cm.label}）`;
@@ -651,7 +702,7 @@ Router.register('order-detail', async (params) => {
                       </div>
                       <div class="order-batch-card__actions">
                         <span class="chip ${batchStatusMeta.class}">${batchStatusMeta.label}</span>
-                        ${canStockInBatch ? `<button class="btn btn--primary btn--sm order-stock-in-btn" data-id="${batch.id}" data-order-no="${Utils.escapeHtml(batch.order_no)}">确认入库</button>` : ''}
+                        ${canStockInBatch ? `<button class="btn btn--primary btn--sm order-stock-in-btn" data-id="${batch.id}" data-count="${batch.pending_stock_in_count}" data-order-no="${Utils.escapeHtml(batch.order_no)}">确认入库</button>` : ''}
                         <a href="#return-detail?id=${batch.id}" class="btn btn--outline btn--sm">查看详情</a>
                       </div>
                     </div>`;
@@ -663,7 +714,7 @@ Router.register('order-detail', async (params) => {
         <div class="content-side">
           ${borrowStage ? `
           <div class="card stack--md">
-            <h3>借出审批进度</h3>
+            <h3>借出审批进度</h3><p class="text-sm text-muted">已交付 ${borrowStage.handoff_completed_count || 0}/${order.item_count} 件。全部交付后可提交归还。</p>
             <div class="stack--sm">
               ${borrowStage.approval_tasks.map(task => {
                 const taskMeta = borrowTaskStatusMap[task.status] || { label: task.status, class: '' };
@@ -716,7 +767,7 @@ Router.register('order-detail', async (params) => {
   const deliverBtn = document.getElementById('order-deliver-btn');
   if (deliverBtn && borrowStage) {
     deliverBtn.addEventListener('click', () => {
-      _showApprovalModal('确认交付', `确认 ${order.item_count} 件设备已线下交付？`, async () => {
+      _showApprovalModal('确认交付', `确认本次负责的 ${borrowStage.pending_deliver_count} 件设备已线下交付？`, async () => {
         await Api.deliverBorrowOrder(borrowStage.id);
         Utils.showToast('已确认交付');
         Router.navigate('order-detail', { id: order.id });
@@ -744,7 +795,7 @@ Router.register('order-detail', async (params) => {
 
   document.querySelectorAll('.order-stock-in-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      _showApprovalModal('确认入库', `确认归还批次 ${btn.dataset.orderNo} 已完成入库？`, async () => {
+      _showApprovalModal('确认入库', `确认归还批次 ${btn.dataset.orderNo} 中本次负责的 ${btn.dataset.count} 件设备已完成入库？`, async () => {
         await Api.stockInReturnOrder(btn.dataset.id);
         Utils.showToast('已确认入库');
         Router.navigate('order-detail', { id: order.id });
@@ -788,7 +839,7 @@ Router.register('borrow-detail', async (params) => {
   };
 
   const sm = borrowStatusMap[order.status] || { label: order.status, class: '' };
-  const canDeliver = isAdmin && (order.status === 'READY_FOR_PICKUP' || order.status === 'APPROVED');
+  const canDeliver = Boolean(order.can_deliver);
   const canCancel = order.applicant_id === user.id && order.status === 'PENDING_APPROVAL';
   const canReturn = order.applicant_id === user.id && (order.status === 'DELIVERED' || order.status === 'PARTIALLY_RETURNED');
 
@@ -918,7 +969,7 @@ Router.register('borrow-detail', async (params) => {
   const deliverBtn = document.getElementById('deliver-btn');
   if (deliverBtn) {
     deliverBtn.addEventListener('click', () => {
-      _showApprovalModal('确认交付', `确认 ${order.item_count} 件设备已线下交付给 ${order.applicant_name || '申请人'}？`, async (comment) => {
+      _showApprovalModal('确认交付', `确认本次负责的 ${order.pending_deliver_count} 件设备已线下交付给 ${order.applicant_name || '申请人'}？`, async (comment) => {
         await Api.deliverBorrowOrder(order.id);
         Utils.showToast('已确认交付');
         Router.navigate('borrow-detail', { id: order.id });
@@ -971,7 +1022,7 @@ Router.register('borrow-detail', async (params) => {
 Router.register('borrow-approvals', async (params) => {
   const app = document.getElementById('app');
   const page = parseInt(params.page) || 1;
-  const statusFilter = params.status || 'ALL';
+  const statusFilter = params.status || 'PENDING';
   const isMobile = window.innerWidth <= 768;
 
   const borrowApprovalStatusMeta = {
@@ -1000,12 +1051,6 @@ Router.register('borrow-approvals', async (params) => {
     return query;
   }
 
-  function buildBorrowApprovalParams(currentStatus, currentPage = 1) {
-    const nextParams = {};
-    if (currentStatus && currentStatus !== 'ALL') nextParams.status = currentStatus;
-    if (currentPage > 1) nextParams.page = currentPage;
-    return nextParams;
-  }
 
   let tasks = [], total = 0;
   let deliveryOrders = [];
@@ -1019,7 +1064,7 @@ Router.register('borrow-approvals', async (params) => {
       tasks = res.data.items;
       total = res.data.total;
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { throw new Error('审批列表加载失败：' + e.message); }
 
   const taskStatusMap = {
     PENDING: { label: '待审批', class: 'chip--pending' },
@@ -1030,7 +1075,7 @@ Router.register('borrow-approvals', async (params) => {
 
   const taskCards = statusFilter === 'READY_FOR_PICKUP'
     ? deliveryOrders.map(order => {
-      const statusMeta = borrowStatusMap.READY_FOR_PICKUP;
+      const statusMeta = { label: '待交付', class: 'chip--warning' };
       const itemRows = (order.items || []).map(item => `
         <div class="approval-task-card__mini-item">
           <div class="approval-task-card__mini-main">
@@ -1061,9 +1106,9 @@ Router.register('borrow-approvals', async (params) => {
             </div>
           </div>
           <div class="approval-task-card__footer">
-            <div class="approval-task-card__comment">审批已全部通过，等待线下交付。</div>
+            <div class="approval-task-card__comment">已交付 ${order.handoff_completed_count || 0}/${order.item_count} 件，各管理员分别确认自己负责的设备。</div>
             <div class="approval-task-card__action-group">
-              <button class="btn btn--primary btn--sm task-deliver-btn" data-id="${order.id}">确认交付</button>
+              ${order.can_deliver ? `<button class="btn btn--primary btn--sm task-deliver-btn" data-id="${order.id}">确认交付 (${order.pending_deliver_count} 件)</button>` : '<span class="text-sm text-muted">本人负责设备已交付，等待其他管理员</span>'}
             </div>
           </div>
         </div>`;
@@ -1199,17 +1244,17 @@ function _showApprovalModal(title, desc, onConfirm, requireComment = false) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="approval-modal-title">
       <div class="modal__header">
-        <h3 class="modal__title">${Utils.escapeHtml(title)}</h3>
-        <button class="modal__close" id="modal-close">&times;</button>
+        <h3 class="modal__title" id="approval-modal-title">${Utils.escapeHtml(title)}</h3>
+        <button class="modal__close" id="modal-close" aria-label="关闭">&times;</button>
       </div>
       <p class="text-sm text-muted" style="margin-bottom:12px;">${Utils.escapeHtml(desc)}</p>
       <div class="form-group">
-        <label class="form-label">审批意见${requireComment ? '' : '（选填）'}</label>
+        <label class="form-label" for="modal-comment">审批意见${requireComment ? '' : '（选填）'}</label>
         <textarea id="modal-comment" class="form-textarea" placeholder="填写审批意见..." style="min-height:60px;"></textarea>
       </div>
-      <div id="modal-error" class="form-error hidden"></div>
+      <div id="modal-error" class="form-error hidden" role="alert"></div>
       <div class="modal__footer">
         <button class="btn btn--outline btn--sm" id="modal-cancel">取消</button>
         <button class="btn btn--primary btn--sm" id="modal-confirm">确认</button>
@@ -1217,9 +1262,11 @@ function _showApprovalModal(title, desc, onConfirm, requireComment = false) {
     </div>`;
   document.body.appendChild(overlay);
 
-  overlay.querySelector('#modal-close').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#modal-cancel').addEventListener('click', () => overlay.remove());
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  let submitting = false;
+  const close = bindApprovalDialog(overlay, () => !submitting);
+  overlay.querySelector('#modal-close').addEventListener('click', close);
+  overlay.querySelector('#modal-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
   overlay.querySelector('#modal-confirm').addEventListener('click', async () => {
     const comment = overlay.querySelector('#modal-comment').value.trim() || null;
@@ -1227,15 +1274,19 @@ function _showApprovalModal(title, desc, onConfirm, requireComment = false) {
       const err = overlay.querySelector('#modal-error');
       err.textContent = '请填写原因';
       err.classList.remove('hidden');
+      overlay.querySelector('#modal-comment').focus();
       return;
     }
     const btn = overlay.querySelector('#modal-confirm');
+    submitting = true;
     btn.disabled = true;
     btn.textContent = '处理中...';
     try {
       await onConfirm(comment);
-      overlay.remove();
+      submitting = false;
+      close();
     } catch (e) {
+      submitting = false;
       Utils.showToast(e.message, 'error');
       btn.disabled = false;
       btn.textContent = '确认';

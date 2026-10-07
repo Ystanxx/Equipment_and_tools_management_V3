@@ -193,7 +193,13 @@ def finalize_staged_attachment(
     related_type: str,
     related_id: uuid.UUID,
     user: User,
+    commit: bool = True,
+    created_files: list[Path] | None = None,
 ) -> Attachment:
+    try:
+        stage_token = str(uuid.UUID(str(stage_token)))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="临时附件标识无效") from exc
     staged_meta = _load_staged_attachment(stage_token)
     if _is_staged_attachment_expired(staged_meta):
         _cleanup_staged_attachment(stage_token)
@@ -205,6 +211,8 @@ def finalize_staged_attachment(
         photo_type = PhotoType(staged_meta["photo_type"])
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="临时附件类型无效") from exc
+    if not commit and photo_type != PhotoType.RETURN_ITEM:
+        raise HTTPException(status_code=400, detail="归还明细必须使用归还照片")
 
     _validate_upload_context(db, photo_type, related_type, related_id, user)
 
@@ -222,8 +230,17 @@ def finalize_staged_attachment(
     extension = Path(staged_meta["file_path"]).suffix
     filename = f"{file_id}{extension}"
     thumb_filename = f"{file_id}_thumb{extension}"
-    shutil.move(str(temp_file), str(sub_dir / filename))
-    shutil.move(str(temp_thumb_file), str(sub_dir / thumb_filename))
+    # Keep staging originals until the containing order transaction succeeds.
+    destinations = [sub_dir / filename, sub_dir / thumb_filename]
+    if created_files is not None:
+        created_files.extend(destinations)
+    try:
+        shutil.copyfile(temp_file, destinations[0])
+        shutil.copyfile(temp_thumb_file, destinations[1])
+    except OSError:
+        for path in destinations:
+            path.unlink(missing_ok=True)
+        raise
 
     attachment = Attachment(
         photo_type=photo_type,
@@ -253,9 +270,10 @@ def finalize_staged_attachment(
             "stage_token": stage_token,
         },
     )
-    db.commit()
-    db.refresh(attachment)
-    _cleanup_staged_attachment(stage_token)
+    if commit:
+        db.commit()
+        db.refresh(attachment)
+        _cleanup_staged_attachment(stage_token)
     return attachment
 
 

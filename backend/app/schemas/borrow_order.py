@@ -30,6 +30,7 @@ class BorrowOrderItemOut(BaseModel):
     asset_code_snapshot: str
     asset_name_snapshot: str
     admin_name_snapshot: str
+    delivered_at: Optional[datetime] = None
     location_name_snapshot: Optional[str] = None
     created_at: datetime
 
@@ -78,6 +79,9 @@ class BorrowOrderOut(BaseModel):
     purpose: Optional[str] = None
     expected_return_date: Optional[str] = None
     item_count: int
+    can_deliver: bool = False
+    pending_deliver_count: int = 0
+    handoff_completed_count: int = 0
     remark: Optional[str] = None
     delivered_at: Optional[datetime] = None
     delivered_by: Optional[UUID] = None
@@ -98,6 +102,10 @@ class BorrowOrderBrief(BaseModel):
     applicant_name: Optional[str] = None
     status: str
     item_count: int
+    can_deliver: bool = False
+    pending_deliver_count: int = 0
+    handoff_completed_count: int = 0
+    items: list[BorrowOrderItemOut] = Field(default_factory=list)
     created_at: datetime
 
     class Config:

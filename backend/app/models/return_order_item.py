@@ -31,6 +31,8 @@ class ReturnOrderItem(Base):
         nullable=True,
     )
     damage_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stocked_in_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    stocked_in_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
     order = relationship("ReturnOrder", back_populates="items")

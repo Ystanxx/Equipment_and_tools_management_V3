@@ -13,12 +13,14 @@ class ReturnItemInput(BaseModel):
     condition: str  # GOOD, PARTIAL_LOSS, FULL_LOSS, DAMAGED
     damage_type: Optional[str] = None
     damage_description: Optional[str] = None
+    staged_photo_tokens: Optional[list[UUID]] = Field(default=None, min_length=1, max_length=20)
 
 
 class ReturnOrderCreate(BaseModel):
     borrow_order_id: UUID
     items: list[ReturnItemInput] = Field(..., min_length=1)
     remark: Optional[str] = None
+    submission_id: Optional[UUID] = None
 
 
 # ===== Item response =====
@@ -30,6 +32,7 @@ class ReturnOrderItemOut(BaseModel):
     asset_code_snapshot: str
     asset_name_snapshot: str
     admin_name_snapshot: str
+    stocked_in_at: Optional[datetime] = None
     condition: str
     damage_type: Optional[str] = None
     damage_description: Optional[str] = None
@@ -84,6 +87,9 @@ class ReturnOrderOut(BaseModel):
     applicant_name: Optional[str] = None
     status: str
     item_count: int
+    can_stock_in: bool = False
+    pending_stock_in_count: int = 0
+    handoff_completed_count: int = 0
     remark: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -103,6 +109,9 @@ class ReturnOrderBrief(BaseModel):
     applicant_name: Optional[str] = None
     status: str
     item_count: int
+    can_stock_in: bool = False
+    pending_stock_in_count: int = 0
+    handoff_completed_count: int = 0
     created_at: datetime
 
     class Config:

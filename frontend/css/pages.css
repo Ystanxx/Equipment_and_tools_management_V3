@@ -1427,3 +1427,15 @@
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.3);
 }
+/* Keep the next borrowing action reachable without changing the existing shell. */
+.borrow-cart-shortcut {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
+  box-shadow: 0 4px 18px #0002;
+}
+@media (max-width: 768px) {
+  .borrow-cart-shortcut { right: 16px; bottom: calc(78px + env(safe-area-inset-bottom)); }
+  .asset-card--borrow .asset-card__media--placeholder { min-height: 100px; }
+}

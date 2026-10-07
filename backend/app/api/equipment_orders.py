@@ -16,7 +16,7 @@ from app.schemas.equipment_order import (
     EquipmentOrderReturnBatchOut,
     EquipmentOrderReturnItemOut,
 )
-from app.services import equipment_order_service
+from app.services import equipment_order_service, borrow_service, return_service
 from app.utils.enums import UserRole
 
 router = APIRouter(prefix="/equipment-orders", tags=["统一订单"])
@@ -35,7 +35,7 @@ def _task_to_out(task) -> EquipmentOrderApprovalTaskOut:
     )
 
 
-def _order_to_out(db: Session, order) -> EquipmentOrderOut:
+def _order_to_out(db: Session, order, user) -> EquipmentOrderOut:
     borrow_order = order.borrow_order
     items = equipment_order_service.list_order_items(db, borrow_order.id) if borrow_order else []
     borrow_tasks = equipment_order_service.list_borrow_approval_tasks(db, borrow_order.id) if borrow_order else []
@@ -49,6 +49,9 @@ def _order_to_out(db: Session, order) -> EquipmentOrderOut:
                 order_no=return_order.order_no,
                 status=return_order.status.value if hasattr(return_order.status, "value") else return_order.status,
                 item_count=return_order.item_count,
+                can_stock_in=bool(return_service.pending_stock_in_items(return_order, user)),
+                pending_stock_in_count=len(return_service.pending_stock_in_items(return_order, user)),
+                handoff_completed_count=sum(bool(i.stocked_in_at) for i in return_order.items),
                 remark=return_order.remark,
                 created_at=return_order.created_at,
                 updated_at=return_order.updated_at,
@@ -100,6 +103,9 @@ def _order_to_out(db: Session, order) -> EquipmentOrderOut:
         ],
         borrow_order=EquipmentOrderBorrowStageOut(
             id=borrow_order.id,
+            can_deliver=bool(borrow_service.pending_delivery_items(borrow_order, user)),
+            pending_deliver_count=len(borrow_service.pending_delivery_items(borrow_order, user)),
+            handoff_completed_count=sum(bool(i.delivered_at) for i in items),
             order_no=borrow_order.order_no,
             status=borrow_order.status.value if hasattr(borrow_order.status, "value") else borrow_order.status,
             delivered_at=borrow_order.delivered_at,
@@ -168,7 +174,7 @@ def get_order(
 ):
     order = equipment_order_service.require_equipment_order(db, order_id)
     _ensure_can_view(user, order)
-    return ResponseSchema(data=_order_to_out(db, order))
+    return ResponseSchema(data=_order_to_out(db, order, user))
 
 
 @router.get("/{order_id}/timeline", summary="统一订单时间线")

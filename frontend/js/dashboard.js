@@ -10,10 +10,11 @@ let _menuBadgeState = {
 const _mobileTopShellScrollOffsets = {};
 
 async function refreshUnreadCount() {
+  const token = Api.getToken();
   try {
     const res = await Api.getUnreadCount();
-    _unreadNotificationCount = (res.data && res.data.count) || 0;
-  } catch { _unreadNotificationCount = 0; }
+    if (Api.getToken() === token) _unreadNotificationCount = (res.data && res.data.count) || 0;
+  } catch { if (Api.getToken() === token) _unreadNotificationCount = 0; }
 }
 
 function buildMenuBadge(key, count) {
@@ -39,6 +40,7 @@ function markManagedAssetsSeen() {
 }
 
 async function refreshAdminMenuBadges(user) {
+  const token = Api.getToken();
   if (!user || (user.role !== 'ASSET_ADMIN' && user.role !== 'SUPER_ADMIN')) {
     _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
     return;
@@ -60,6 +62,7 @@ async function refreshAdminMenuBadges(user) {
   ];
 
   const [managedAssetsRes, borrowRes, returnRes, registrationRes] = await Promise.allSettled(requests);
+  if (Api.getToken() !== token || Api.getUser()?.id !== user.id) return;
   _menuBadgeState = {
     managedAssets: hasManagedAssetsSeenAt && managedAssetsRes.status === 'fulfilled'
       ? (managedAssetsRes.value.data?.total || 0)
@@ -70,15 +73,42 @@ async function refreshAdminMenuBadges(user) {
   };
 }
 
+let _navigationRequest = null;
+let _navigationLoadedAt = 0;
+let _navigationUserId = '';
+let _navigationToken = '';
+function updateNavigationBadges() {
+  const counts = {'managed-assets': _menuBadgeState.managedAssets, 'borrow-approvals': _menuBadgeState.borrowApprovals,
+    'return-approvals': _menuBadgeState.returnApprovals, 'user-mgmt': _menuBadgeState.userMgmt, notifications: _unreadNotificationCount};
+  Object.entries(counts).forEach(([route, count]) => {
+    document.querySelectorAll(`a[href="#${route}"]`).forEach(link => {
+      link.querySelectorAll('[data-menu-badge]').forEach(badge => badge.remove());
+      if (count > 0) link.insertAdjacentHTML('beforeend', buildMenuBadge(route, count));
+    });
+  });
+}
 async function ensureNavigationState(user = Api.getUser()) {
   if (!Api.getToken() || !user) {
     _unreadNotificationCount = 0;
     _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
     return;
   }
+  const token = Api.getToken();
+  const sameSession = _navigationUserId === user.id && _navigationToken === token;
+  if (sameSession && Date.now() - _navigationLoadedAt < 3000) return;
+  if (sameSession && _navigationRequest) return _navigationRequest;
+  if (!sameSession) {
+    _unreadNotificationCount = 0;
+    _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
+  }
+  _navigationUserId = user.id;
+  _navigationToken = token;
   const tasks = [refreshUnreadCount()];
   if (user.role !== 'USER') tasks.push(refreshAdminMenuBadges(user));
-  await Promise.allSettled(tasks);
+  const request = Promise.allSettled(tasks);
+  _navigationRequest = request;
+  try { await request; if (Api.getToken() === token) _navigationLoadedAt = Date.now(); }
+  finally { if (_navigationRequest === request) _navigationRequest = null; }
 }
 
 const MENU_ICON_MAP = {

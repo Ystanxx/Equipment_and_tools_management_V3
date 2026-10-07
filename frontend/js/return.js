@@ -37,9 +37,9 @@ Router.register('return-submit', async (params) => {
       try {
         const detail = await Api.getReturnOrder(ro.id);
         (detail.data.items || []).forEach(ri => returnedAssetIds.add(ri.asset_id));
-      } catch (e) { /* ignore */ }
+      } catch (e) { throw e; }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { throw new Error('无法确认可归还器材，请稍后重试：' + e.message); }
 
   const availableItems = order.items.filter(i => !returnedAssetIds.has(i.asset_id));
 
@@ -123,6 +123,8 @@ Router.register('return-submit', async (params) => {
       app.innerHTML = renderUserLayout('my-orders', formHtml);
     }
   }
+
+  const submissionId = Api.newSubmissionId();
 
   // Photo accumulation per item (fix: camera returns 1 file at a time)
   const _returnPhotos = {}; // idx -> [{ file, previewUrl, progress, error, stageToken, uploading }]
@@ -223,6 +225,7 @@ Router.register('return-submit', async (params) => {
           asset_id: cb.dataset.assetId,
           condition,
           damage_description: (condition === 'DAMAGED' || condition === 'PARTIAL_LOSS') ? desc : null,
+          staged_photo_tokens: photos.map(entry => entry.stageToken),
         });
       });
 
@@ -257,30 +260,24 @@ Router.register('return-submit', async (params) => {
         isReturnUploading = true;
         submitBtn.disabled = true;
         submitBtn.textContent = '提交中...';
+        // Re-stage expired photos without asking the user to select files again.
+        for (const [itemIdx, photoGroup] of Object.entries(photoMap)) {
+          for (const entry of photoGroup.files) {
+            if (!entry.stageToken) {
+              const uploaded = await Api.stageAttachment(entry.file, 'RETURN_ITEM');
+              entry.stageToken = uploaded.data.stage_token;
+              entry.progress = 100;
+              renderReturnPhotoPreview(photoGroup.idx);
+            }
+          }
+          items[Number(itemIdx)].staged_photo_tokens = photoGroup.files.map(entry => entry.stageToken);
+        }
         const res = await Api.createReturnOrder({
+          submission_id: submissionId,
           borrow_order_id: borrowOrderId,
           items,
           remark: document.getElementById('return-remark').value.trim() || null,
         });
-        // Upload photos for each item
-        const roItems = res.data.items || [];
-        for (const [itemIdx, photoGroup] of Object.entries(photoMap)) {
-          const ri = roItems[parseInt(itemIdx)];
-          if (!ri) continue;
-          const { idx, files } = photoGroup;
-          for (let index = 0; index < files.length; index += 1) {
-            const entry = files[index];
-            try {
-              if (!entry.stageToken) throw new Error('照片仍未上传完成');
-              await Api.finalizeStagedAttachment(entry.stageToken, 'ReturnOrderItem', ri.id);
-              entry.stageToken = null;
-            } catch (e) {
-              entry.error = true;
-              console.warn('Photo upload failed:', e);
-              throw e;
-            }
-          }
-        }
         Utils.showToast('归还单已提交，等待审批');
         if (res.data.equipment_order_id) {
           Router.navigate('order-detail', { id: res.data.equipment_order_id });
@@ -289,7 +286,11 @@ Router.register('return-submit', async (params) => {
         }
       } catch (e) {
         isReturnUploading = false;
-        errEl.textContent = e.message;
+        if (/临时附件/.test(e.message)) {
+          Object.values(_returnPhotos).flat().forEach(entry => { entry.stageToken = null; });
+        }
+        errEl.textContent = /临时附件/.test(e.message)
+          ? '临时照片已过期，订单尚未提交。再次点击提交将自动重新上传照片。' : e.message;
         errEl.classList.remove('hidden');
         submitBtn.disabled = false;
         submitBtn.textContent = '确认提交归还';
@@ -335,7 +336,7 @@ Router.register('return-detail', async (params) => {
   };
 
   const sm = returnStatusMap[order.status] || { label: order.status, class: '' };
-  const canStockIn = isAdmin && order.status === 'APPROVED';
+  const canStockIn = Boolean(order.can_stock_in);
 
   // Load photos for each item & timeline
   const itemPhotos = {};
@@ -368,7 +369,7 @@ Router.register('return-detail', async (params) => {
       <div class="content-row">
         <div class="content-main">
         <div class="card stack--md">
-          <h3>归还明细 (${order.item_count} 件)</h3>
+          <h3>归还明细 (${order.item_count} 件)</h3><p class="text-sm text-muted">已入库 ${order.handoff_completed_count || 0}/${order.item_count} 件，各管理员分别确认自己负责的设备。</p>
           <div class="table-wrapper">
             <table class="data-table">
               <thead><tr><th>编号</th><th>名称</th><th>归还状态</th><th>管理员</th><th>备注</th><th>照片</th></tr></thead>
@@ -380,7 +381,7 @@ Router.register('return-detail', async (params) => {
                     <td class="text-sm">${Utils.escapeHtml(i.asset_code_snapshot)}</td>
                     <td>${Utils.escapeHtml(i.asset_name_snapshot)}</td>
                     <td><span class="chip ${cm.class}">${cm.label}</span></td>
-                    <td class="text-sm">${Utils.escapeHtml(i.admin_name_snapshot)}</td>
+                    <td class="text-sm">${Utils.escapeHtml(i.admin_name_snapshot)} · ${i.stocked_in_at ? '已入库' : '未入库'}</td>
                     <td class="text-sm text-muted">${Utils.escapeHtml(i.damage_description || '-')}</td>
                     <td>${photos.length > 0 ? photos.map(p => `<img src="/uploads/${Utils.escapeHtml(p.thumb_path || p.file_path)}" class="photo-gallery__img" style="width:40px;height:40px;" onclick="Utils.openLightbox('/uploads/${Utils.escapeHtml(p.file_path)}')">`).join(' ') : '<span class="text-xs text-muted">无照片</span>'}</td>
                   </tr>`;
@@ -398,7 +399,7 @@ Router.register('return-detail', async (params) => {
           <div class="stack--sm">
             ${(order.approval_tasks || []).map(t => {
               const ts = taskStatusMap[t.status] || { label: t.status, class: '' };
-              const canApproveTask = isAdmin && t.status === 'PENDING' && (t.approver_id === user.id || user.role === 'SUPER_ADMIN');
+              const canApproveTask = ['PENDING_APPROVAL', 'PARTIALLY_APPROVED'].includes(order.status) && isAdmin && t.status === 'PENDING' && (t.approver_id === user.id || user.role === 'SUPER_ADMIN');
               return `
                 <div class="user-row" style="flex-wrap:wrap;gap:8px;">
                   <div class="user-row__info">
@@ -476,7 +477,7 @@ Router.register('return-detail', async (params) => {
   const stockInBtn = document.getElementById('return-stock-in-btn');
   if (stockInBtn) {
     stockInBtn.addEventListener('click', () => {
-      _showApprovalModal('确认入库', `确认归还单 ${order.order_no} 已完成入库？`, async () => {
+      _showApprovalModal('确认入库', `确认归还单 ${order.order_no} 中本次负责的 ${order.pending_stock_in_count} 件设备已完成入库？`, async () => {
         await Api.stockInReturnOrder(order.id);
         Utils.showToast('已确认入库');
         Router.navigate('return-detail', { id: order.id });
@@ -496,7 +497,7 @@ Router.register('my-returns', async (params) => {
 Router.register('return-approvals', async (params) => {
   const app = document.getElementById('app');
   const page = parseInt(params.page) || 1;
-  const statusFilter = params.status || 'ALL';
+  const statusFilter = params.status || 'PENDING';
   const isMobile = window.innerWidth <= 768;
 
   const returnApprovalStatusMeta = {
@@ -522,7 +523,7 @@ Router.register('return-approvals', async (params) => {
 
   function buildReturnApprovalParams(currentStatus, currentPage = 1) {
     const nextParams = {};
-    if (currentStatus && currentStatus !== 'ALL') nextParams.status = currentStatus;
+    if (currentStatus) nextParams.status = currentStatus;
     if (currentPage > 1) nextParams.page = currentPage;
     return nextParams;
   }
@@ -532,7 +533,7 @@ Router.register('return-approvals', async (params) => {
     const res = await Api.listReturnApprovalTasks(buildReturnApprovalQuery(statusFilter));
     tasks = res.data.items;
     total = res.data.total;
-  } catch (e) { console.error(e); }
+  } catch (e) { throw new Error('审批列表加载失败：' + e.message); }
 
   const taskStatusMap = {
     PENDING: { label: '待审批', class: 'chip--pending' },
@@ -565,8 +566,8 @@ Router.register('return-approvals', async (params) => {
     const sm = returnStatusMap[order.status] || { label: order.status, class: '' };
     const currentTask = (order.approval_tasks || []).find(t => t.id === task.id) || task;
     const currentTaskMeta = taskStatusMap[currentTask.status] || { label: currentTask.status, class: '' };
-    const canApproveTask = isAdmin && currentTask.status === 'PENDING' && (currentTask.approver_id === user.id || user.role === 'SUPER_ADMIN');
-    const canStockIn = isAdmin && order.status === 'APPROVED';
+    const canApproveTask = ['PENDING_APPROVAL', 'PARTIALLY_APPROVED'].includes(order.status) && isAdmin && currentTask.status === 'PENDING' && (currentTask.approver_id === user.id || user.role === 'SUPER_ADMIN');
+    const canStockIn = Boolean(order.can_stock_in);
 
     const photosByItem = {};
     await Promise.all((order.items || []).map(async (item) => {
@@ -588,7 +589,7 @@ Router.register('return-approvals', async (params) => {
             <div class="approval-panel__item-code">${Utils.escapeHtml(item.asset_code_snapshot)}</div>
           </div>
           <div class="approval-panel__item-meta">
-            <span>${Utils.escapeHtml(item.admin_name_snapshot || '-')}</span>
+            <span>${Utils.escapeHtml(item.admin_name_snapshot || '-')} · ${item.stocked_in_at ? '已入库' : '未入库'}</span>
             <span><span class="chip ${cm.class}">${cm.label}</span></span>
           </div>
           ${item.damage_description ? `<div class="approval-panel__item-note">说明：${Utils.escapeHtml(item.damage_description)}</div>` : ''}
@@ -675,7 +676,7 @@ Router.register('return-approvals', async (params) => {
       }, true);
     });
     panel.overlay.querySelector('.approval-panel-stockin-btn')?.addEventListener('click', () => {
-      _showApprovalModal('确认入库', `确认归还单 ${order.order_no} 已完成入库？`, async () => {
+      _showApprovalModal('确认入库', `确认归还单 ${order.order_no} 中本次负责的 ${order.pending_stock_in_count} 件设备已完成入库？`, async () => {
         await Api.stockInReturnOrder(order.id);
         panel.close();
         Utils.showToast('已确认入库');

@@ -3,6 +3,16 @@ const Router = {
   currentRoute: null,
   loadingTimer: null,
   routeProgressEl: null,
+  listContexts: {},
+  scrollPositions: {},
+  renderedHash: '',
+  resolving: false,
+  pendingResolve: null,
+
+  backToList(name) {
+    this.restoreNextScroll = true;
+    this.navigate(name, this.listContexts[name] || {});
+  },
 
   register(name, handler) {
     this.routes[name] = handler;
@@ -53,9 +63,26 @@ const Router = {
     return user.role === 'USER' ? 'asset-list' : 'dashboard';
   },
 
-  async resolve() {
+  async resolve(options = {}) {
+    this.pendingResolve = options;
+    if (this.resolving) return;
+    this.resolving = true;
+    try {
+      while (this.pendingResolve) {
+        const next = this.pendingResolve;
+        this.pendingResolve = null;
+        await this.renderRoute(next);
+      }
+    } finally { this.resolving = false; }
+  },
+
+  async renderRoute(options = {}) {
+    const routeHash = window.location.hash;
+    const scrollTop = options.preserveScroll ? window.scrollY : (this.restoreNextScroll ? this.scrollPositions[routeHash] || 0 : 0);
+    this.restoreNextScroll = false;
     const { name, params } = this.parseHash();
     this.currentRoute = name;
+    if (['asset-list', 'managed-assets'].includes(name)) this.listContexts[name] = {...params};
 
     // Auth guard
     const publicRoutes = ['login', 'register'];
@@ -75,9 +102,11 @@ const Router = {
       return this.navigate('pending');
     }
 
-    // 在渲染前刷新导航气泡，确保侧栏和移动菜单状态一致。
+    // 后台更新导航气泡，不阻塞页面内容。
     if (token && user && typeof ensureNavigationState === 'function') {
-      await ensureNavigationState(user);
+      void ensureNavigationState(user).then(() => {
+        if (typeof updateNavigationBadges === 'function') updateNavigationBadges();
+      });
     }
 
     const handler = this.routes[name];
@@ -95,10 +124,14 @@ const Router = {
         if (typeof bindMobileTopShell === 'function') {
           bindMobileTopShell();
         }
-        window.scrollTo(0, 0);
+        if (routeHash === window.location.hash) {
+          window.scrollTo(0, scrollTop);
+          this.renderedHash = routeHash;
+          if (typeof updateNavigationBadges === 'function') updateNavigationBadges();
+        }
       } catch (e) {
         console.error('Route error:', e);
-        app.innerHTML = `<div class="empty-state"><p>页面加载失败: ${Utils.escapeHtml(e.message)}</p></div>`;
+        app.innerHTML = `<div class="empty-state" role="alert"><p>页面加载失败: ${Utils.escapeHtml(e.message)}</p><button class="btn btn--primary" onclick="Router.resolve()">重试</button><button class="btn btn--outline" onclick="Router.navigate(Router.getDefaultRoute(Api.getUser()))">返回首页</button></div>`;
       } finally {
         clearTimeout(this.loadingTimer);
         this.hideRouteProgress();
@@ -109,6 +142,9 @@ const Router = {
   },
 
   init() {
+    window.addEventListener('scroll', () => {
+      if (this.renderedHash === window.location.hash) this.scrollPositions[this.renderedHash] = window.scrollY;
+    }, {passive: true});
     window.addEventListener('hashchange', () => this.resolve());
     this.resolve();
   },
@@ -117,6 +153,7 @@ const Router = {
 let _inventoryStateSyncTimer = null;
 let _inventoryStateSyncBusy = false;
 let _lastInventoryAssetVersion = '';
+let _inventoryRefreshPending = false;
 const LIVE_INVENTORY_REFRESH_ROUTES = new Set([
   'dashboard',
   'asset-list',
@@ -135,6 +172,7 @@ function shouldSilentlyRefreshCurrentRoute() {
   if (document.querySelector('.modal-overlay')) return false;
   const activeTag = document.activeElement?.tagName;
   if (activeTag && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return false;
+  if ([...document.querySelectorAll('#app input, #app textarea')].some(input => input.value !== input.defaultValue)) return false;
   return true;
 }
 
@@ -145,24 +183,25 @@ async function pollInventoryState(force = false) {
   _inventoryStateSyncBusy = true;
   try {
     const res = await Api.getAssetLiveState();
-    const assetVersion = res.data?.asset_version || '';
-    if (!assetVersion) return;
+    const assetVersion = JSON.stringify([res.data?.asset_version, res.data?.updated_asset_count, res.data?.workflow_version]);
+    if (typeof ensureNavigationState === 'function') {
+      void ensureNavigationState(Api.getUser()).then(() => updateNavigationBadges());
+    }
 
     if (force || !_lastInventoryAssetVersion) {
       _lastInventoryAssetVersion = assetVersion;
       return;
     }
 
-    if (assetVersion === _lastInventoryAssetVersion) return;
+    if (assetVersion === _lastInventoryAssetVersion && !_inventoryRefreshPending) return;
 
     _lastInventoryAssetVersion = assetVersion;
-    if (typeof ensureNavigationState === 'function') {
-      await ensureNavigationState(Api.getUser());
-    }
+    _inventoryRefreshPending = true;
     window.dispatchEvent(new CustomEvent('inventory-state-sync', { detail: res.data || {} }));
 
-    if (shouldSilentlyRefreshCurrentRoute()) {
-      await Router.resolve();
+    if (shouldSilentlyRefreshCurrentRoute() && !Router.resolving) {
+      _inventoryRefreshPending = false;
+      await Router.resolve({preserveScroll: true});
     }
   } catch (error) {
     console.warn('静默库存同步失败', error);
@@ -185,6 +224,7 @@ function stopInventoryStateSync() {
     _inventoryStateSyncTimer = null;
   }
   _lastInventoryAssetVersion = '';
+  _inventoryRefreshPending = false;
 }
 
 window.startInventoryStateSync = startInventoryStateSync;

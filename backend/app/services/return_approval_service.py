@@ -50,6 +50,10 @@ def list_return_tasks(
             q = q.filter(ReturnApprovalTask.status != ApprovalTaskStatus.PENDING)
         if normalized_status and normalized_status != "ALL":
             q = q.filter(ReturnApprovalTask.status == normalized_status)
+        if normalized_status == "PENDING":
+            q = q.join(ReturnOrder, ReturnOrder.id == ReturnApprovalTask.return_order_id).filter(
+                ReturnOrder.status.in_([ReturnOrderStatus.PENDING_APPROVAL, ReturnOrderStatus.PARTIALLY_APPROVED])
+            )
     total = q.count()
     items = q.order_by(ReturnApprovalTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return items, total
@@ -99,8 +103,10 @@ def approve_return_task(
         notification_service.create(
             db,
             recipient_id=ro.applicant_id,
-            title="归还审批已通过",
-            content=f"您的归还单 {ro.order_no} 已通过审批，等待管理员确认入库。",
+            title="归还审批已通过" if ro.status == ReturnOrderStatus.APPROVED else "归还审批部分通过",
+            content=(f"您的归还单 {ro.order_no} 已通过审批，等待管理员确认入库。"
+                     if ro.status == ReturnOrderStatus.APPROVED else
+                     f"您的归还单 {ro.order_no} 部分审批通过，仍需其他管理员审批。"),
             notification_type="RETURN",
             related_type="ReturnOrder",
             related_id=ro.id,
@@ -157,13 +163,15 @@ def reject_return_task(
             related_id=ro.id,
         )
 
-    # 驳回 → 恢复设备到 BORROWED
-    for item_id in task.item_ids:
-        ri = db.query(ReturnOrderItem).filter(ReturnOrderItem.id == item_id).first()
-        if ri:
-            asset = db.query(Asset).filter(Asset.id == ri.asset_id).first()
-            if asset and asset.status == AssetStatus.PENDING_RETURN_APPROVAL:
-                asset.status = AssetStatus.BORROWED
+    # 整批驳回必须终止所有剩余任务，避免旧任务干扰用户重新提交的批次。
+    for sibling in ro.approval_tasks:
+        if sibling.id != task.id and sibling.status == ApprovalTaskStatus.PENDING:
+            sibling.status = ApprovalTaskStatus.SKIPPED
+            sibling.decided_at = datetime.now(timezone.utc)
+    for ri in ro.items:
+        asset = db.query(Asset).filter(Asset.id == ri.asset_id).first()
+        if asset and asset.status == AssetStatus.PENDING_RETURN_APPROVAL:
+            asset.status = AssetStatus.BORROWED
 
     _sync_return_order_status(db, task.return_order_id)
     equipment_order_service.sync_after_return_order(db, task.return_order_id)
@@ -177,6 +185,10 @@ def _get_task_for_user(db: Session, task_id: uuid.UUID, user: User) -> ReturnApp
     task = db.query(ReturnApprovalTask).filter(ReturnApprovalTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="归还审批任务不存在")
+    order = db.query(ReturnOrder).filter(ReturnOrder.id == task.return_order_id).with_for_update(of=ReturnOrder).populate_existing().first()
+    db.refresh(task)
+    if not order or order.status not in (ReturnOrderStatus.PENDING_APPROVAL, ReturnOrderStatus.PARTIALLY_APPROVED):
+        raise HTTPException(status_code=400, detail="该归还单已结束审批，请刷新待办")
     if task.status != ApprovalTaskStatus.PENDING:
         raise HTTPException(status_code=400, detail="该任务已处理")
     if task.approver_id != user.id and user.role != UserRole.SUPER_ADMIN:
@@ -199,6 +211,7 @@ def _sync_return_order_status(db: Session, return_order_id: uuid.UUID):
         return_order_service.sync_borrow_order_after_return(db, ro.borrow_order_id)
     elif any(s == ApprovalTaskStatus.REJECTED for s in statuses):
         ro.status = ReturnOrderStatus.REJECTED
+        db.flush()
         return_order_service.sync_borrow_order_after_return(db, ro.borrow_order_id)
     elif any(s == ApprovalTaskStatus.APPROVED for s in statuses) and any(s == ApprovalTaskStatus.PENDING for s in statuses):
         ro.status = ReturnOrderStatus.PARTIALLY_APPROVED

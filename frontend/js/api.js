@@ -93,12 +93,22 @@ const Api = {
     const opts = { method, headers };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
 
-    const res = await fetch(url, opts);
-    const json = await this.parseResponse(res);
+    const controller = new AbortController();
+    opts.signal = controller.signal;
+    const timer = setTimeout(() => controller.abort(), 30000);
+    let res, json;
+    try {
+      res = await fetch(url, opts);
+      json = await this.parseResponse(res);
+    } catch (error) {
+      if (error.name === 'AbortError') throw new Error('请求超时，请检查订单状态后重试');
+      if (error instanceof TypeError) throw new Error('网络连接失败，请检查网络后重试');
+      throw error;
+    } finally { clearTimeout(timer); }
 
     if (res.status === 401) {
       const isLoginRequest = path === '/auth/login';
-      if (!isLoginRequest && token) {
+      if (!isLoginRequest && token && this.getToken() === token) {
         this.clearToken();
         this.clearUser();
         Router.navigate('login');
@@ -107,7 +117,7 @@ const Api = {
     }
 
     if (!res.ok) {
-      throw new Error(json.detail || json.message || '请求失败');
+      throw new Error(Array.isArray(json.detail) ? json.detail.map(item => item.msg).join('；') : (json.detail || json.message || '请求失败'));
     }
     return json;
   },
@@ -207,21 +217,41 @@ const Api = {
   rejectBorrowTask(id, comment) { return this.post(`/borrow-approval-tasks/${id}/reject`, { comment }); },
 
   // Cart (client-side localStorage)
-  getCart() { return JSON.parse(localStorage.getItem('borrow_cart') || '[]'); },
+  getUserStorageKey(name) {
+    return `${name}:${this.getUser()?.id || 'anonymous'}`;
+  },
+  getCart() {
+    // Legacy shared carts have no reliable owner; never migrate them to another account.
+    localStorage.removeItem('borrow_cart');
+    try { return JSON.parse(localStorage.getItem(this.getUserStorageKey('borrow_cart')) || '[]'); }
+    catch { return []; }
+  },
+  getBorrowDraft() {
+    try { return JSON.parse(sessionStorage.getItem(this.getUserStorageKey('borrow_draft')) || '{}'); }
+    catch { return {}; }
+  },
+  saveBorrowDraft(draft) { sessionStorage.setItem(this.getUserStorageKey('borrow_draft'), JSON.stringify(draft)); },
+  clearBorrowDraft() { sessionStorage.removeItem(this.getUserStorageKey('borrow_draft')); },
+  newSubmissionId() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  },
   addToCart(asset) {
     const cart = this.getCart();
     const maxItems = this.getSystemConfig('borrow_order_max_items', 20);
     if (cart.find(i => i.id === asset.id)) return false;
     if (cart.length >= maxItems) return false;
     cart.push({ id: asset.id, asset_code: asset.asset_code, name: asset.name, location_name: asset.location_name || '' });
-    localStorage.setItem('borrow_cart', JSON.stringify(cart));
+    localStorage.setItem(this.getUserStorageKey('borrow_cart'), JSON.stringify(cart));
     return true;
   },
   removeFromCart(assetId) {
     const cart = this.getCart().filter(i => i.id !== assetId);
-    localStorage.setItem('borrow_cart', JSON.stringify(cart));
+    localStorage.setItem(this.getUserStorageKey('borrow_cart'), JSON.stringify(cart));
   },
-  clearCart() { localStorage.removeItem('borrow_cart'); },
+  clearCart() { localStorage.removeItem(this.getUserStorageKey('borrow_cart')); this.clearBorrowDraft(); },
 
   // Return Orders
   createReturnOrder(data) { return this.post('/return-orders', data); },
@@ -243,6 +273,8 @@ const Api = {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', uploadUrl, true);
+      xhr.timeout = 120000;
+      xhr.ontimeout = () => reject(new Error('照片上传超时，请重试'));
       Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
 
       if (onProgress) {
@@ -300,6 +332,8 @@ const Api = {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', uploadUrl, true);
+      xhr.timeout = 120000;
+      xhr.ontimeout = () => reject(new Error('照片上传超时，请重试'));
       Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
 
       if (onProgress) {

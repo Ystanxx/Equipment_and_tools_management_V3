@@ -253,7 +253,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
         (
             applicant.email,
             "借用设备已确认交付",
-            f"管理员 {asset_admin.full_name} 已确认交付借用单 {order_data['order_no']}，共 1 件设备。",
+            f"管理员 {asset_admin.full_name} 已确认交付借用单 {order_data['order_no']} 的 1 件设备；累计 1/1 件。",
         )
     ]
 
