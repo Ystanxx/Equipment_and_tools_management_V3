@@ -3,6 +3,8 @@
 > 本目录包含系统五个实施阶段的详细文档，记录了每个阶段的目标、实现内容、关键文件路径和待办事项。
 > 供后续接手团队快速了解项目现状和剩余工作。
 
+> 2026-10-29 更新：阶段一至五保留历史记录，当前修复、架构评估、测试结果与发布步骤见 [阶段六](stage-6-review-hardening.md)。
+
 ---
 
 ## 总体进度
@@ -14,6 +16,7 @@
 | 三 | 归还流程 | ✅ 已完成 | [stage-3-return-flow.md](stage-3-return-flow.md) |
 | 四 | 通知/审计/配置 | ⚠️ 部分完成 | [stage-4-notifications-audit-config.md](stage-4-notifications-audit-config.md) |
 | 五 | 图片/清理/测试/UI | ⚠️ 部分完成 | [stage-5-image-cleanup-tests-ui.md](stage-5-image-cleanup-tests-ui.md) |
+| 六 | 并发/权限/性能/交互加固 | 本地完成，待发布 | [stage-6-review-hardening.md](stage-6-review-hardening.md) |
 
 ---
 
