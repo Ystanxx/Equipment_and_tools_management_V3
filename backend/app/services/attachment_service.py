@@ -375,8 +375,8 @@ def _validate_upload_context(
         order = db.query(BorrowOrder).filter(BorrowOrder.id == related_id).first()
         if not order:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="关联借用单不存在")
-        if order.applicant_id != user.id and user.role not in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权为该借用单上传照片")
+        from app.services.access_service import require_order_access
+        require_order_access(db, order.equipment_order_id, user)
         return
 
     if photo_type == PhotoType.RETURN_ITEM:
@@ -385,9 +385,8 @@ def _validate_upload_context(
         item = db.query(ReturnOrderItem).filter(ReturnOrderItem.id == related_id).first()
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="关联归还明细不存在")
-        applicant_id = item.order.applicant_id if item.order else None
-        if applicant_id != user.id and user.role not in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权为该归还明细上传照片")
+        from app.services.access_service import require_order_access
+        require_order_access(db, item.order.equipment_order_id, user)
         return
 
     if related_type not in {"Asset", "BorrowOrder", "ReturnOrderItem"}:
@@ -399,6 +398,11 @@ def _to_relative_path(photo_type: PhotoType, now: datetime, filename: str) -> st
 
 
 def _load_staged_attachment(stage_token: str) -> dict:
+    try:
+        if str(uuid.UUID(stage_token)) != stage_token:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的临时附件标识")
     metadata_path = STAGING_DIR / f"{stage_token}.json"
     if not metadata_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="临时附件不存在或已过期")

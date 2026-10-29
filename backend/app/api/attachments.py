@@ -8,6 +8,8 @@ from app.models.attachment import Attachment
 from app.models.user import User
 from app.schemas.common import ResponseSchema
 from app.services import attachment_service
+from app.services.access_service import require_attachment_context
+from app.services.attachment_access import image_path
 from app.utils.enums import PhotoType
 
 router = APIRouter(prefix="/attachments", tags=["附件"])
@@ -118,17 +120,18 @@ def delete_staged_attachment(
 
 @router.get("", summary="查询附件列表")
 def list_attachments(
-    related_type: str | None = None,
-    related_id: str | None = None,
+    related_type: str,
+    related_id: uuid.UUID,
     photo_type: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user),
 ):
+    require_attachment_context(db, related_type, related_id, user)
     q = db.query(Attachment)
     if related_type:
         q = q.filter(Attachment.related_type == related_type)
     if related_id:
-        q = q.filter(Attachment.related_id == uuid.UUID(related_id))
+        q = q.filter(Attachment.related_id == related_id)
     if photo_type:
         q = q.filter(Attachment.photo_type == photo_type)
     items = q.order_by(Attachment.created_at.desc()).limit(100).all()
@@ -139,8 +142,8 @@ def list_attachments(
             "photo_type": a.photo_type.value if hasattr(a.photo_type, "value") else a.photo_type,
             "related_type": a.related_type,
             "related_id": str(a.related_id),
-            "file_path": a.file_path,
-            "thumb_path": a.thumb_path,
+            "file_path": image_path(a.file_path, user),
+            "thumb_path": image_path(a.thumb_path, user),
             "original_filename": a.original_filename,
             "file_size": a.file_size,
             "mime_type": a.mime_type,

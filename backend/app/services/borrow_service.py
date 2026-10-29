@@ -274,7 +274,8 @@ def deliver_borrow_order(db: Session, order_id: uuid.UUID, deliverer: User) -> B
 
 
 def cancel_borrow_order(db: Session, order_id: uuid.UUID, user: User) -> BorrowOrder:
-    order = get_borrow_order(db, order_id)
+    from app.services.borrow_lock import lock_borrow_order
+    order = lock_borrow_order(db, order_id)
 
     if order.applicant_id != user.id:
         raise HTTPException(status_code=403, detail="只能取消自己的借用单")

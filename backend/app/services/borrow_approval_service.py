@@ -15,6 +15,7 @@ from app.utils.enums import (
     UserRole,
 )
 from app.services import audit_service, equipment_order_service, notification_service
+from app.services.borrow_lock import lock_borrow_order
 
 
 def list_pending_tasks(
@@ -100,7 +101,8 @@ def reject_task(db: Session, task_id: uuid.UUID, user: User, comment: str | None
     # 驳回后，整张借用单不再继续审批，其余待处理任务跳过，相关设备统一回到在库。
     from app.models.borrow_order_item import BorrowOrderItem
 
-    sibling_tasks = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.order_id == task.order_id).all()
+    db.flush()
+    sibling_tasks = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.order_id == task.order_id).populate_existing().all()
     for sibling in sibling_tasks:
         if sibling.id != task.id and sibling.status == ApprovalTaskStatus.PENDING:
             sibling.status = ApprovalTaskStatus.SKIPPED
@@ -145,9 +147,13 @@ def reject_task(db: Session, task_id: uuid.UUID, user: User, comment: str | None
 
 
 def _get_task_for_user(db: Session, task_id: uuid.UUID, user: User) -> BorrowApprovalTask:
-    task = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.id == task_id).first()
-    if not task:
+    task_order = db.query(BorrowApprovalTask.order_id).filter(BorrowApprovalTask.id == task_id).first()
+    if not task_order:
         raise HTTPException(status_code=404, detail="审批任务不存在")
+    order = lock_borrow_order(db, task_order[0])
+    task = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.id == task_id).populate_existing().one()
+    if order.status not in (BorrowOrderStatus.PENDING_APPROVAL, BorrowOrderStatus.PARTIALLY_APPROVED):
+        raise HTTPException(status_code=400, detail="该借用单已结束审批")
     if task.status != ApprovalTaskStatus.PENDING:
         raise HTTPException(status_code=400, detail="该任务已处理")
 
@@ -160,11 +166,12 @@ def _get_task_for_user(db: Session, task_id: uuid.UUID, user: User) -> BorrowApp
 
 def _sync_order_status(db: Session, order_id: uuid.UUID):
     """根据所有审批任务状态同步借用单状态"""
+    db.flush()
     order = db.query(BorrowOrder).filter(BorrowOrder.id == order_id).first()
     if not order:
         return
 
-    tasks = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.order_id == order_id).all()
+    tasks = db.query(BorrowApprovalTask).filter(BorrowApprovalTask.order_id == order_id).populate_existing().all()
     statuses = [t.status for t in tasks]
 
     if all(s == ApprovalTaskStatus.APPROVED for s in statuses):

@@ -60,6 +60,13 @@ def setup_db():
 
 
 @pytest.fixture(autouse=True)
+def isolated_uploads(monkeypatch, tmp_path):
+    from app.services import attachment_service
+    monkeypatch.setattr(attachment_service, 'UPLOAD_DIR', tmp_path)
+    monkeypatch.setattr(attachment_service, 'STAGING_DIR', tmp_path / '_staging')
+
+
+@pytest.fixture(autouse=True)
 def clean_tables():
     yield
     with engine.connect() as conn:

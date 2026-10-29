@@ -11,12 +11,13 @@ from app.models.return_order_item import ReturnOrderItem
 from app.schemas.return_order import ReturnApprovalTaskOut, ReturnApprovalActionRequest, ReturnApprovalItemDetail
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import return_approval_service
+from app.services.attachment_access import image_path
 from app.utils.enums import UserRole, PhotoType
 
 router = APIRouter(prefix="/return-approval-tasks", tags=["归还审批"])
 
 
-def _task_to_out(t, db: Session = None) -> ReturnApprovalTaskOut:
+def _task_to_out(t, db: Session = None, user=None) -> ReturnApprovalTaskOut:
     item_details = []
     return_order_no = None
     return_order_status = None
@@ -37,7 +38,7 @@ def _task_to_out(t, db: Session = None) -> ReturnApprovalTaskOut:
                 condition=i.condition.value if hasattr(i.condition, "value") else i.condition,
                 damage_type=i.damage_type.value if i.damage_type and hasattr(i.damage_type, "value") else i.damage_type,
                 damage_description=i.damage_description,
-                photos=[{"id": str(p.id), "file_path": p.file_path} for p in photos],
+                photos=[{"id": str(p.id), "file_path": image_path(p.file_path, user)} for p in photos],
             ))
         ro = db.query(ReturnOrder).filter(ReturnOrder.id == t.return_order_id).first()
         if ro:
@@ -85,7 +86,7 @@ def list_tasks(
     )
     return ResponseSchema(
         data=PaginatedData(
-            items=[_task_to_out(t, db) for t in items],
+            items=[_task_to_out(t, db, user) for t in items],
             total=total,
             page=page,
             page_size=page_size,
@@ -101,7 +102,7 @@ def approve(
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     task = return_approval_service.approve_return_task(db, task_id, user, body.comment)
-    return ResponseSchema(data=_task_to_out(task, db))
+    return ResponseSchema(data=_task_to_out(task, db, user))
 
 
 @router.post("/{task_id}/reject", summary="驳回归还审批")
@@ -112,4 +113,4 @@ def reject(
     user: User = Depends(require_role(UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)),
 ):
     task = return_approval_service.reject_return_task(db, task_id, user, body.comment)
-    return ResponseSchema(data=_task_to_out(task, db))
+    return ResponseSchema(data=_task_to_out(task, db, user))

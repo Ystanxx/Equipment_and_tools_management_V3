@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_active_user, get_db
@@ -18,6 +18,7 @@ from app.schemas.equipment_order import (
 )
 from app.services import equipment_order_service, borrow_service, return_service
 from app.utils.enums import UserRole
+from app.services.access_service import require_order_access
 
 router = APIRouter(prefix="/equipment-orders", tags=["统一订单"])
 
@@ -118,25 +119,10 @@ def _order_to_out(db: Session, order, user) -> EquipmentOrderOut:
     )
 
 
-def _ensure_can_view(user: User, order) -> None:
-    if user.role == UserRole.SUPER_ADMIN:
-        return
-    if order.applicant_id == user.id:
-        return
-    if user.role == UserRole.ASSET_ADMIN:
-        borrow_items = (order.borrow_order.items if order.borrow_order else []) or []
-        if any(item.admin_id_snapshot == user.id for item in borrow_items):
-            return
-        for return_order in order.return_orders or []:
-            if any(item.admin_id_snapshot == user.id for item in (return_order.items or [])):
-                return
-    raise HTTPException(status_code=403, detail="无权查看该订单")
-
-
 @router.get("", summary="统一订单列表")
 def list_orders(
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     mine: bool = False,
     status_group: str | None = None,
     db: Session = Depends(get_db),
@@ -146,6 +132,7 @@ def list_orders(
     items, total = equipment_order_service.list_equipment_orders(
         db=db,
         applicant_id=applicant_id,
+        viewer=user,
         status_group=status_group,
         page=page,
         page_size=page_size,
@@ -173,7 +160,7 @@ def get_order(
     user: User = Depends(get_active_user),
 ):
     order = equipment_order_service.require_equipment_order(db, order_id)
-    _ensure_can_view(user, order)
+    require_order_access(db, order.id, user)
     return ResponseSchema(data=_order_to_out(db, order, user))
 
 
@@ -184,6 +171,6 @@ def get_timeline(
     user: User = Depends(get_active_user),
 ):
     order = equipment_order_service.require_equipment_order(db, order_id)
-    _ensure_can_view(user, order)
+    require_order_access(db, order.id, user)
     logs = equipment_order_service.list_order_timeline(db, order_id)
     return ResponseSchema(data=[AuditLogOut.model_validate(item) for item in logs])

@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import SessionLocal, engine
+from app.core.deps import get_db
 from app.core.security import hash_password
 from app.models.asset_type import AssetTypeOption
 from app.models.user import User
@@ -137,7 +138,10 @@ app.include_router(api_router)
 # Serve uploaded files
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+@app.get("/uploads/{path:path}", include_in_schema=False)
+def uploaded_image(path: str, request: Request, db=Depends(get_db)):
+    from app.services.attachment_access import serve_image
+    return serve_image(path, request, db)
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():

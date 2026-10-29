@@ -38,7 +38,7 @@ def test_upload_attachment_generates_thumbnail(client, auth_headers, asset_type_
     assert data["thumb_path"].endswith(".webp")
     assert data["mime_type"] == "image/webp"
 
-    upload_root = Path(__file__).resolve().parents[1] / "uploads"
+    upload_root = attachment_service.UPLOAD_DIR
     standard_file = upload_root / data["file_path"]
     thumb_file = upload_root / data["thumb_path"]
     assert standard_file.exists()
@@ -103,7 +103,7 @@ def test_stage_and_finalize_attachment_flow(client, auth_headers, asset_type_ids
     assert finalize_res.status_code == 200
     data = finalize_res.json()["data"]
     assert "staging/" not in data["file_path"]
-    upload_root = Path(__file__).resolve().parents[1] / "uploads"
+    upload_root = attachment_service.UPLOAD_DIR
     assert (upload_root / data["file_path"]).exists()
 
 

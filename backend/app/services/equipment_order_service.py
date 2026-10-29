@@ -54,8 +54,12 @@ def list_equipment_orders(
     status_group: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    viewer=None,
 ) -> tuple[list[EquipmentOrder], int]:
     q = db.query(EquipmentOrder)
+    if viewer is not None:
+        from app.services.access_service import equipment_order_scope
+        q = q.filter(equipment_order_scope(viewer))
     if applicant_id:
         q = q.filter(EquipmentOrder.applicant_id == applicant_id)
     orders = q.order_by(EquipmentOrder.created_at.desc()).all()
