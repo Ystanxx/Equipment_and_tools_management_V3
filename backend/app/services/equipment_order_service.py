@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, case, cast, func, or_, select, String
+from sqlalchemy.orm import Session, joinedload, lazyload, selectinload
 
 from app.models.audit_log import AuditLog
 from app.models.borrow_order import BorrowOrder
@@ -10,6 +11,7 @@ from app.models.borrow_order_item import BorrowOrderItem
 from app.models.borrow_approval_task import BorrowApprovalTask
 from app.models.equipment_order import EquipmentOrder
 from app.models.return_order import ReturnOrder
+from app.models.return_order_item import ReturnOrderItem
 from app.models.return_approval_task import ReturnApprovalTask
 from app.utils.enums import BorrowOrderStatus, EquipmentOrderStatus, ReturnOrderStatus
 
@@ -62,26 +64,40 @@ def list_equipment_orders(
         q = q.filter(equipment_order_scope(viewer))
     if applicant_id:
         q = q.filter(EquipmentOrder.applicant_id == applicant_id)
-    orders = q.order_by(EquipmentOrder.created_at.desc()).all()
     group = (status_group or "").upper()
-    if group == "IN_PROGRESS":
-        in_progress_statuses = {
-            EquipmentOrderStatus.PENDING_BORROW_APPROVAL.value,
-            EquipmentOrderStatus.READY_FOR_PICKUP.value,
-            EquipmentOrderStatus.BORROWED.value,
-            EquipmentOrderStatus.PENDING_RETURN_APPROVAL.value,
-            EquipmentOrderStatus.RETURN_REJECTED.value,
-            "PENDING_STOCK_IN",
-            EquipmentOrderStatus.PARTIALLY_RETURNED.value,
-        }
-        orders = [item for item in orders if resolve_equipment_order_status(item) in in_progress_statuses]
-    elif group == "COMPLETED":
-        orders = [item for item in orders if resolve_equipment_order_status(item) == EquipmentOrderStatus.COMPLETED.value]
-
-    total = len(orders)
-    start = max(0, (page - 1) * page_size)
-    end = start + page_size
-    return orders[start:end], total
+    if group in {"IN_PROGRESS", "COMPLETED"}:
+        q = q.outerjoin(BorrowOrder, BorrowOrder.equipment_order_id == EquipmentOrder.id)
+        # Match the display resolver: completed returns count distinct assets,
+        # including legacy batches. Approved returns are still in progress.
+        completed = select(func.count(func.distinct(ReturnOrderItem.asset_id))).join(
+            ReturnOrder, ReturnOrder.id == ReturnOrderItem.return_order_id
+        ).where(ReturnOrder.equipment_order_id == EquipmentOrder.id,
+                ReturnOrder.status == ReturnOrderStatus.COMPLETED).correlate(EquipmentOrder).scalar_subquery()
+        item_count = func.coalesce(func.nullif(EquipmentOrder.item_count, 0), BorrowOrder.item_count, 0)
+        display_group = case(
+            (BorrowOrder.id.is_(None), cast(EquipmentOrder.status, String)),
+            (BorrowOrder.status == BorrowOrderStatus.REJECTED, "BORROW_REJECTED"),
+            (BorrowOrder.status == BorrowOrderStatus.CANCELLED, "CANCELLED"),
+            (BorrowOrder.status.in_([BorrowOrderStatus.PENDING_APPROVAL, BorrowOrderStatus.PARTIALLY_APPROVED,
+                                   BorrowOrderStatus.APPROVED, BorrowOrderStatus.READY_FOR_PICKUP]), "IN_PROGRESS"),
+            (or_(BorrowOrder.status == BorrowOrderStatus.COMPLETED,
+                 and_(item_count > 0, completed >= item_count)), "COMPLETED"),
+            else_="IN_PROGRESS",
+        )
+        if group == "COMPLETED":
+            q = q.filter(display_group == "COMPLETED")
+        else:
+            q = q.filter(display_group.in_(["IN_PROGRESS", "PENDING_BORROW_APPROVAL", "READY_FOR_PICKUP",
+                "BORROWED", "PENDING_RETURN_APPROVAL", "RETURN_REJECTED", "PARTIALLY_RETURNED"]))
+    total = q.count()
+    orders = q.options(
+        lazyload("*"), joinedload(EquipmentOrder.applicant),
+        selectinload(EquipmentOrder.borrow_order).lazyload("*"),
+        selectinload(EquipmentOrder.return_orders).options(
+            lazyload("*"), selectinload(ReturnOrder.items).lazyload("*")),
+    ).order_by(EquipmentOrder.created_at.desc(), EquipmentOrder.id.desc()).offset(
+        max(0, (page - 1) * page_size)).limit(page_size).all()
+    return orders, total
 
 
 def list_order_timeline(db: Session, equipment_order_id: uuid.UUID) -> list[AuditLog]:

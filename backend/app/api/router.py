@@ -16,6 +16,7 @@ from app.api.audit_logs import router as audit_logs_router
 from app.api.attachments import router as attachments_router
 from app.api.system_configs import router as system_configs_router
 from app.api.notifications import router as notifications_router
+from app.api.dashboard import router as dashboard_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -35,3 +36,4 @@ api_router.include_router(audit_logs_router)
 api_router.include_router(attachments_router)
 api_router.include_router(system_configs_router)
 api_router.include_router(notifications_router)
+api_router.include_router(dashboard_router)

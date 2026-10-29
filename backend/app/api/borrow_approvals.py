@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session, lazyload, joinedload
 
 from app.core.deps import get_db, require_role
 from app.models.user import User
@@ -15,13 +15,24 @@ from app.utils.enums import UserRole
 router = APIRouter(prefix="/borrow-approval-tasks", tags=["借出审批"])
 
 
-def _task_to_out(t, db: Session = None) -> BorrowApprovalTaskOut:
+def _load_context(tasks, db):
+    ids = {item_id for task in tasks for item_id in task.item_ids or []}
+    orders = {o.id: o for o in db.query(BorrowOrder).options(
+        lazyload("*"), joinedload(BorrowOrder.applicant)).filter(
+        BorrowOrder.id.in_({t.order_id for t in tasks})).all()} if tasks else {}
+    items = {i.id: i for i in db.query(BorrowOrderItem).options(lazyload("*")).filter(
+        BorrowOrderItem.id.in_(ids)).all()} if ids else {}
+    return orders, items
+
+
+def _task_to_out(t, db: Session = None, context=None) -> BorrowApprovalTaskOut:
     item_details = []
     order_no = None
     applicant_name = None
     equipment_order_id = None
-    if db and t.item_ids:
-        items = db.query(BorrowOrderItem).filter(BorrowOrderItem.id.in_(t.item_ids)).all()
+    if db:
+        orders, item_map = context if context is not None else _load_context([t], db)
+        items = [item_map[item_id] for item_id in t.item_ids or [] if item_id in item_map]
         item_details = [
             ApprovalItemDetail(
                 id=i.id, asset_id=i.asset_id,
@@ -30,7 +41,7 @@ def _task_to_out(t, db: Session = None) -> BorrowApprovalTaskOut:
                 location_name_snapshot=i.location_name_snapshot,
             ) for i in items
         ]
-        order = db.query(BorrowOrder).filter(BorrowOrder.id == t.order_id).first()
+        order = orders.get(t.order_id)
         if order:
             order_no = order.order_no
             applicant_name = order.applicant.full_name if order.applicant else None
@@ -54,8 +65,8 @@ def _task_to_out(t, db: Session = None) -> BorrowApprovalTaskOut:
 
 @router.get("", summary="审批任务列表")
 def list_tasks(
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
     history_only: bool = False,
     order_id: UUID | None = None,
@@ -73,9 +84,10 @@ def list_tasks(
         page=page,
         page_size=page_size,
     )
+    context = _load_context(items, db)
     return ResponseSchema(
         data=PaginatedData(
-            items=[_task_to_out(t, db) for t in items],
+            items=[_task_to_out(t, db, context) for t in items],
             total=total,
             page=page,
             page_size=page_size,

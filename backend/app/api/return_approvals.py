@@ -1,7 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from collections import defaultdict
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session, lazyload, joinedload
 
 from app.core.deps import get_db, require_role
 from app.models.user import User
@@ -17,20 +18,32 @@ from app.utils.enums import UserRole, PhotoType
 router = APIRouter(prefix="/return-approval-tasks", tags=["归还审批"])
 
 
-def _task_to_out(t, db: Session = None, user=None) -> ReturnApprovalTaskOut:
+def _load_context(tasks, db):
+    ids = {item_id for task in tasks for item_id in task.item_ids or []}
+    orders = {o.id: o for o in db.query(ReturnOrder).options(
+        lazyload("*"), joinedload(ReturnOrder.applicant)).filter(
+        ReturnOrder.id.in_({t.return_order_id for t in tasks})).all()} if tasks else {}
+    items = {i.id: i for i in db.query(ReturnOrderItem).options(lazyload("*")).filter(
+        ReturnOrderItem.id.in_(ids)).all()} if ids else {}
+    photos = defaultdict(list)
+    if ids:
+        for photo in db.query(Attachment).filter(Attachment.related_type == "ReturnOrderItem",
+                Attachment.related_id.in_(ids), Attachment.photo_type == PhotoType.RETURN_ITEM).all():
+            photos[photo.related_id].append(photo)
+    return orders, items, photos
+
+
+def _task_to_out(t, db: Session = None, user=None, context=None) -> ReturnApprovalTaskOut:
     item_details = []
     return_order_no = None
     return_order_status = None
     applicant_name = None
     equipment_order_id = None
-    if db and t.item_ids:
-        items = db.query(ReturnOrderItem).filter(ReturnOrderItem.id.in_(t.item_ids)).all()
+    if db:
+        orders, item_map, photo_map = context if context is not None else _load_context([t], db)
+        items = [item_map[item_id] for item_id in t.item_ids or [] if item_id in item_map]
         for i in items:
-            photos = db.query(Attachment).filter(
-                Attachment.related_type == "ReturnOrderItem",
-                Attachment.related_id == i.id,
-                Attachment.photo_type == PhotoType.RETURN_ITEM,
-            ).all()
+            photos = photo_map[i.id]
             item_details.append(ReturnApprovalItemDetail(
                 id=i.id, asset_id=i.asset_id,
                 asset_code_snapshot=i.asset_code_snapshot,
@@ -40,7 +53,7 @@ def _task_to_out(t, db: Session = None, user=None) -> ReturnApprovalTaskOut:
                 damage_description=i.damage_description,
                 photos=[{"id": str(p.id), "file_path": image_path(p.file_path, user)} for p in photos],
             ))
-        ro = db.query(ReturnOrder).filter(ReturnOrder.id == t.return_order_id).first()
+        ro = orders.get(t.return_order_id)
         if ro:
             return_order_no = ro.order_no
             return_order_status = ro.status.value if hasattr(ro.status, "value") else ro.status
@@ -66,8 +79,8 @@ def _task_to_out(t, db: Session = None, user=None) -> ReturnApprovalTaskOut:
 
 @router.get("", summary="归还审批任务列表")
 def list_tasks(
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
     history_only: bool = False,
     return_order_id: UUID | None = None,
@@ -84,9 +97,10 @@ def list_tasks(
         page=page,
         page_size=page_size,
     )
+    context = _load_context(items, db)
     return ResponseSchema(
         data=PaginatedData(
-            items=[_task_to_out(t, db, user) for t in items],
+            items=[_task_to_out(t, db, user, context) for t in items],
             total=total,
             page=page,
             page_size=page_size,
