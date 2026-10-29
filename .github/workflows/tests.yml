@@ -2,7 +2,7 @@ name: Regression checks
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, codex/review-hardening]
 permissions:
   contents: read
 jobs:
@@ -32,5 +32,7 @@ jobs:
         with:
           node-version: '22'
       - run: pip install -r backend/requirements.txt
+      - run: bash -n scripts/update-equipment-app.sh
+      - run: python -m unittest discover -s scripts/tests -v
       - run: python backend/scripts/test_isolated.py -q
       - run: node --test frontend/tests/*.test.cjs
