@@ -94,17 +94,23 @@ const Api = {
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
 
     const controller = new AbortController();
+    const routeSignal = method === 'GET' ? this.routeSignal : null;
+    const abortForNavigation = () => controller.abort();
+    if (routeSignal?.aborted) throw new DOMException('页面已切换', 'AbortError');
+    routeSignal?.addEventListener('abort', abortForNavigation, {once: true});
     opts.signal = controller.signal;
     const timer = setTimeout(() => controller.abort(), 30000);
     let res, json;
     try {
       res = await fetch(url, opts);
       json = await this.parseResponse(res);
+      if (routeSignal?.aborted) throw new DOMException('页面已切换', 'AbortError');
     } catch (error) {
+      if (routeSignal?.aborted) throw new DOMException('页面已切换', 'AbortError');
       if (error.name === 'AbortError') throw new Error('请求超时，请检查订单状态后重试');
       if (error instanceof TypeError) throw new Error('网络连接失败，请检查网络后重试');
       throw error;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); routeSignal?.removeEventListener('abort', abortForNavigation); }
 
     if (res.status === 401) {
       const isLoginRequest = path === '/auth/login';
@@ -113,12 +119,13 @@ const Api = {
         this.clearUser();
         Router.navigate('login');
       }
-      throw new Error(json.detail || json.message || (isLoginRequest ? '用户名或密码错误' : '登录已过期'));
+      throw Object.assign(new Error(json.detail || json.message || (isLoginRequest ? '用户名或密码错误' : '登录已过期')), {status: 401});
     }
 
     if (!res.ok) {
-      throw new Error(Array.isArray(json.detail) ? json.detail.map(item => item.msg).join('；') : (json.detail || json.message || '请求失败'));
+      throw Object.assign(new Error(Array.isArray(json.detail) ? json.detail.map(item => item.msg).join('；') : (json.detail || json.message || '请求失败')), {status: res.status});
     }
+    if (method !== 'GET' && typeof _navigationLoadedAt !== 'undefined') _navigationLoadedAt = 0;
     return json;
   },
 
@@ -150,6 +157,7 @@ const Api = {
   register(data) { return this.post('/auth/register', data); },
   login(data) { return this.post('/auth/login', data); },
   me() { return this.get('/auth/me'); },
+  getDashboardSummary(params) { return this.get('/dashboard/summary', params); },
   updateMyEmailPreference(emailNotificationsEnabled) {
     return this.put('/auth/preferences/email', {
       email_notifications_enabled: emailNotificationsEnabled,

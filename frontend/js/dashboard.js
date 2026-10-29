@@ -10,15 +10,12 @@ let _menuBadgeState = {
 const _mobileTopShellScrollOffsets = {};
 
 async function refreshUnreadCount() {
-  const token = Api.getToken();
-  try {
-    const res = await Api.getUnreadCount();
-    if (Api.getToken() === token) _unreadNotificationCount = (res.data && res.data.count) || 0;
-  } catch { if (Api.getToken() === token) _unreadNotificationCount = 0; }
+  await ensureNavigationState(Api.getUser(), true);
 }
 
 function buildMenuBadge(key, count) {
-  if (!count || count <= 0) return '';
+  if (count == null) return `<span data-menu-badge="${key}" title="计数暂不可用" aria-label="计数暂不可用">?</span>`;
+  if (count <= 0) return '';
   return `<span class="chip chip--danger" data-menu-badge="${key}" style="margin-left:6px;font-size:11px;min-width:18px;text-align:center;">${count > 99 ? '99+' : count}</span>`;
 }
 
@@ -39,39 +36,8 @@ function markManagedAssetsSeen() {
   document.querySelectorAll('[data-menu-badge="managed-assets"]').forEach((el) => el.remove());
 }
 
-async function refreshAdminMenuBadges(user) {
-  const token = Api.getToken();
-  if (!user || (user.role !== 'ASSET_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-    _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
-    return;
-  }
-
-  const managedAssetsSeenAt = getManagedAssetsSeenAt(user);
-  const hasManagedAssetsSeenAt = Boolean(managedAssetsSeenAt && !Number.isNaN(Date.parse(managedAssetsSeenAt)));
-  const managedAssetParams = { page_size: 1 };
-  if (user.role === 'ASSET_ADMIN') managedAssetParams.admin_id = user.id;
-  if (hasManagedAssetsSeenAt) managedAssetParams.updated_after = managedAssetsSeenAt;
-
-  const requests = [
-    Api.listAssets(managedAssetParams),
-    Api.listBorrowApprovalTasks({ status: 'PENDING', page_size: 1 }),
-    Api.listReturnApprovalTasks({ status: 'PENDING', page_size: 1 }),
-    user.role === 'SUPER_ADMIN'
-      ? Api.listRegistrations({ status: 'PENDING', page_size: 1 })
-      : Promise.resolve({ data: { total: 0 } }),
-  ];
-
-  const [managedAssetsRes, borrowRes, returnRes, registrationRes] = await Promise.allSettled(requests);
-  if (Api.getToken() !== token || Api.getUser()?.id !== user.id) return;
-  _menuBadgeState = {
-    managedAssets: hasManagedAssetsSeenAt && managedAssetsRes.status === 'fulfilled'
-      ? (managedAssetsRes.value.data?.total || 0)
-      : 0,
-    borrowApprovals: borrowRes.status === 'fulfilled' ? (borrowRes.value.data?.total || 0) : 0,
-    returnApprovals: returnRes.status === 'fulfilled' ? (returnRes.value.data?.total || 0) : 0,
-    userMgmt: registrationRes.status === 'fulfilled' ? (registrationRes.value.data?.total || 0) : 0,
-  };
-}
+let _dashboardSummary = null;
+let _navigationError = false;
 
 let _navigationRequest = null;
 let _navigationLoadedAt = 0;
@@ -83,11 +49,11 @@ function updateNavigationBadges() {
   Object.entries(counts).forEach(([route, count]) => {
     document.querySelectorAll(`a[href="#${route}"]`).forEach(link => {
       link.querySelectorAll('[data-menu-badge]').forEach(badge => badge.remove());
-      if (count > 0) link.insertAdjacentHTML('beforeend', buildMenuBadge(route, count));
+      if (count == null || count > 0) link.insertAdjacentHTML('beforeend', buildMenuBadge(route, count));
     });
   });
 }
-async function ensureNavigationState(user = Api.getUser()) {
+async function ensureNavigationState(user = Api.getUser(), force = false) {
   if (!Api.getToken() || !user) {
     _unreadNotificationCount = 0;
     _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
@@ -95,20 +61,34 @@ async function ensureNavigationState(user = Api.getUser()) {
   }
   const token = Api.getToken();
   const sameSession = _navigationUserId === user.id && _navigationToken === token;
-  if (sameSession && Date.now() - _navigationLoadedAt < 3000) return;
-  if (sameSession && _navigationRequest) return _navigationRequest;
+  if (!force && sameSession && Date.now() - _navigationLoadedAt < 25000) return;
+  if (sameSession && _navigationRequest) { try { await _navigationRequest; } catch {} return; }
   if (!sameSession) {
-    _unreadNotificationCount = 0;
+    _dashboardSummary = null;
+    _navigationError = false;
+    _unreadNotificationCount = null;
     _menuBadgeState = { managedAssets: 0, borrowApprovals: 0, returnApprovals: 0, userMgmt: 0 };
   }
   _navigationUserId = user.id;
   _navigationToken = token;
-  const tasks = [refreshUnreadCount()];
-  if (user.role !== 'USER') tasks.push(refreshAdminMenuBadges(user));
-  const request = Promise.allSettled(tasks);
+  const request = Api.getDashboardSummary({managed_seen_at: getManagedAssetsSeenAt(user) || undefined});
   _navigationRequest = request;
-  try { await request; if (Api.getToken() === token) _navigationLoadedAt = Date.now(); }
-  finally { if (_navigationRequest === request) _navigationRequest = null; }
+  try {
+    const response = await request;
+    if (Api.getToken() !== token || Api.getUser()?.id !== user.id) return;
+    _dashboardSummary = response.data;
+    _navigationError = false;
+    _unreadNotificationCount = response.data.unread;
+    _menuBadgeState = {managedAssets: response.data.managed_assets, borrowApprovals: response.data.borrow_approvals,
+      returnApprovals: response.data.return_approvals, userMgmt: response.data.registrations};
+    _navigationLoadedAt = Date.now();
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    if (Api.getToken() !== token) return;
+    _navigationError = true;
+    _unreadNotificationCount = null;
+    _menuBadgeState = {managedAssets: null, borrowApprovals: null, returnApprovals: null, userMgmt: null};
+  } finally { if (_navigationRequest === request) _navigationRequest = null; }
 }
 
 const MENU_ICON_MAP = {
@@ -309,7 +289,7 @@ function renderPcLayout(active, mainContent) {
 
 // Pre-fetch unread count before each page render for sidebar badge
 async function ensureUnreadCount() {
-  if (Api.getToken()) await refreshUnreadCount();
+  if (Api.getToken()) await ensureNavigationState();
 }
 
 // ===== User PC Layout (regular users) =====
@@ -360,7 +340,7 @@ function renderDashboardStatCard({ value, label, className = '', href = '', hint
   const cardClass = `stat-card${interactiveClass} ${className}`.trim();
   return `
     <${tagName}${hrefAttr} class="${cardClass}">
-      <div class="stat-card__value">${value}</div>
+      <div class="stat-card__value">${value == null ? '暂不可用' : value}</div>
       <div class="stat-card__label">${label}</div>
       ${hint ? `<div class="stat-card__hint">${hint}</div>` : ''}
     </${tagName}>`;
@@ -385,45 +365,23 @@ Router.register('dashboard', async () => {
   await ensureUnreadCount();
   const isSuper = user.role === 'SUPER_ADMIN';
 
-  // Shared stats
-  let totalAssets = 0, borrowedCount = 0, stockCount = 0;
-  let pendingBorrowTasks = 0, pendingReturnTasks = 0;
-  let pendingRegistrations = 0;
+  const stats = _dashboardSummary || {};
+  const totalAssets = stats.total_assets ?? null, borrowedCount = stats.borrowed_assets ?? null, stockCount = stats.stock_assets ?? null;
+  const pendingBorrowTasks = stats.borrow_approvals ?? null, pendingReturnTasks = stats.return_approvals ?? null;
+  const pendingRegistrations = stats.registrations ?? null;
+  const statsNotice = _navigationError ? `<div class="card" role="alert">统计暂不可用${_dashboardSummary ? '，当前显示上次成功的数据（' + new Date(_navigationLoadedAt).toLocaleTimeString() + '）' : ''}。<button class="btn btn--outline" onclick="_navigationLoadedAt=0;Router.resolve()">重试</button></div>` : '';
   let recentLogs = [];
-
-  try {
-    const assetParams = isSuper ? {} : { admin_id: user.id };
-    const [allRes, borrowedRes, stockRes] = await Promise.all([
-      Api.listAssets({ ...assetParams, page: 1, page_size: 1 }),
-      Api.listAssets({ ...assetParams, status: 'BORROWED', page: 1, page_size: 1 }),
-      Api.listAssets({ ...assetParams, in_stock_only: true, page: 1, page_size: 1 }),
-    ]);
-    totalAssets = allRes.data.total;
-    borrowedCount = borrowedRes.data.total;
-    stockCount = stockRes.data.total;
-  } catch (e) { console.error(e); }
-
-  try {
-    const [btRes, rtRes] = await Promise.all([
-      Api.listBorrowApprovalTasks({ status: 'PENDING', page: 1, page_size: 1 }),
-      Api.listReturnApprovalTasks({ status: 'PENDING', page: 1, page_size: 1 }),
-    ]);
-    pendingBorrowTasks = btRes.data.total;
-    pendingReturnTasks = rtRes.data.total;
-  } catch (e) { console.error(e); }
-
+  let logsFailed = false;
   if (isSuper) {
-    try {
-      const regRes = await Api.listRegistrations({ status: 'PENDING', page_size: 1 });
-      pendingRegistrations = (regRes.data.items || []).length;
-    } catch (e) { console.error(e); }
     try {
       const logRes = await Api.listAuditLogs({ page: 1, page_size: 8 });
       recentLogs = logRes.data.items || [];
-    } catch (e) { console.error(e); }
+    } catch (error) { if (error.name === 'AbortError') throw error; logsFailed = true; }
   }
 
   const actionLabels = {
+    LOGIN_SUCCESS: '登录成功',
+    LOGOUT: '退出登录',
     BORROW_ORDER_CREATE: '提交借用单',
     BORROW_ORDER_DELIVER: '确认交付',
     BORROW_ORDER_CANCEL: '取消借用单',
@@ -439,7 +397,7 @@ Router.register('dashboard', async () => {
   // ----- Super Admin Dashboard -----
   if (isSuper) {
     const mainContent = `
-      <div class="dashboard-shell">
+      <div class="dashboard-shell">${statsNotice}
       <div class="page-header">
         <div class="page-header__info">
           <h1 class="page-header__title">系统运营概览</h1>
@@ -506,7 +464,7 @@ Router.register('dashboard', async () => {
           </div>
           <a href="#audit-logs" class="btn btn--outline btn--sm">查看全部日志</a>
         </div>
-        ${recentLogs.length === 0 ? '<p class="text-sm text-muted">暂无记录</p>' : `
+        ${recentLogs.length === 0 ? `<p class="text-sm text-muted">${logsFailed ? '操作记录加载失败，请重试' : '暂无记录'}</p>` : `
         <div class="table-wrapper">
           <table class="data-table">
             <thead><tr><th style="width:180px;">时间</th><th style="width:190px;">操作</th><th>描述</th></tr></thead>
@@ -526,11 +484,11 @@ Router.register('dashboard', async () => {
   // ----- Asset Admin Dashboard -----
   } else {
     const mainContent = `
-      <div class="dashboard-shell">
+      <div class="dashboard-shell">${statsNotice}
       <div class="page-header">
         <div class="page-header__info">
           <h1 class="page-header__title">设备管理工作台</h1>
-          <p class="page-header__desc">${Utils.escapeHtml(user.full_name)} · 管理 ${totalAssets} 件设备</p>
+          <p class="page-header__desc">${Utils.escapeHtml(user.full_name)} · 管理 ${totalAssets ?? '待加载'} 件设备</p>
         </div>
         <div class="page-header__actions"><span class="tag">ASSET ADMIN</span></div>
       </div>

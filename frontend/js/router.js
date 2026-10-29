@@ -65,6 +65,7 @@ const Router = {
 
   async resolve(options = {}) {
     this.pendingResolve = options;
+    this.routeController?.abort();
     if (this.resolving) return;
     this.resolving = true;
     try {
@@ -77,6 +78,8 @@ const Router = {
   },
 
   async renderRoute(options = {}) {
+    this.routeController = new AbortController();
+    Api.routeSignal = this.routeController.signal;
     const routeHash = window.location.hash;
     const scrollTop = options.preserveScroll ? window.scrollY : (this.restoreNextScroll ? this.scrollPositions[routeHash] || 0 : 0);
     this.restoreNextScroll = false;
@@ -130,8 +133,10 @@ const Router = {
           if (typeof updateNavigationBadges === 'function') updateNavigationBadges();
         }
       } catch (e) {
+        if (e.name === 'AbortError' || routeHash !== window.location.hash) return;
         console.error('Route error:', e);
-        app.innerHTML = `<div class="empty-state" role="alert"><p>页面加载失败: ${Utils.escapeHtml(e.message)}</p><button class="btn btn--primary" onclick="Router.resolve()">重试</button><button class="btn btn--outline" onclick="Router.navigate(Router.getDefaultRoute(Api.getUser()))">返回首页</button></div>`;
+        const errorContent = `<div class="empty-state" role="alert"><p>页面加载失败: ${Utils.escapeHtml(e.message)}</p><button class="btn btn--primary" onclick="Router.resolve()">重试</button><button class="btn btn--outline" onclick="Router.navigate(Router.getDefaultRoute(Api.getUser()))">返回首页</button></div>`;
+        app.innerHTML = user && typeof renderPcLayout === 'function' ? renderPcLayout(name, errorContent) : errorContent;
       } finally {
         clearTimeout(this.loadingTimer);
         this.hideRouteProgress();
@@ -177,16 +182,17 @@ function shouldSilentlyRefreshCurrentRoute() {
 }
 
 async function pollInventoryState(force = false) {
+  if (document.hidden) return;
   if (_inventoryStateSyncBusy) return;
   if (!Api.getToken()) return;
 
   _inventoryStateSyncBusy = true;
   try {
-    const res = await Api.getAssetLiveState();
-    const assetVersion = JSON.stringify([res.data?.asset_version, res.data?.updated_asset_count, res.data?.workflow_version]);
-    if (typeof ensureNavigationState === 'function') {
-      void ensureNavigationState(Api.getUser()).then(() => updateNavigationBadges());
-    }
+    await ensureNavigationState(Api.getUser(), true);
+    if (_navigationError || !_dashboardSummary) return;
+    const res = {data: _dashboardSummary};
+    const assetVersion = JSON.stringify([res.data.asset_version, res.data.workflow_version]);
+    updateNavigationBadges();
 
     if (force || !_lastInventoryAssetVersion) {
       _lastInventoryAssetVersion = assetVersion;
@@ -211,11 +217,12 @@ async function pollInventoryState(force = false) {
 }
 
 function startInventoryStateSync() {
+  if (document.hidden) return;
   if (_inventoryStateSyncTimer) return;
   void pollInventoryState(true);
   _inventoryStateSyncTimer = window.setInterval(() => {
     void pollInventoryState();
-  }, 10000);
+  }, 30000);
 }
 
 function stopInventoryStateSync() {
@@ -238,9 +245,13 @@ window.addEventListener('DOMContentLoaded', async () => {
       const res = await Api.me();
       Api.setUser(res.data);
       await Api.bootstrapSystemConfigs();
-    } catch {
-      Api.clearToken();
-      Api.clearUser();
+    } catch (error) {
+      if (error.status === 401) {
+        Api.clearToken();
+      } else if (!Api.getUser()) {
+        document.getElementById('app').innerHTML = '<div class="empty-state" role="alert"><p>暂时无法连接服务器，登录信息已保留。</p><button class="btn btn--primary" onclick="location.reload()">重新连接</button></div>';
+        return;
+      }
     }
   }
   Router.init();
@@ -250,7 +261,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Api.getToken()) {
-    void pollInventoryState();
-  }
+  if (document.hidden && _inventoryStateSyncTimer) {
+    clearInterval(_inventoryStateSyncTimer);
+    _inventoryStateSyncTimer = null;
+  } else if (Api.getToken()) startInventoryStateSync();
 });
