@@ -27,7 +27,7 @@ def pending_order(client, db, auth_headers, asset_type_ids):
     return response.json()['data'], managers
 
 
-@pytest.mark.parametrize('actions', [('approve', 'approve'), ('approve', 'reject'), ('approve', 'cancel')])
+@pytest.mark.parametrize('actions', [('approve', 'approve'), ('approve', 'reject'), ('approve', 'cancel'), ('same', 'same')])
 def test_concurrent_borrow_decisions_refresh_state(pending_order, actions, db):
     order, _ = pending_order
     order_id = uuid.UUID(order['id'])
@@ -42,8 +42,10 @@ def test_concurrent_borrow_decisions_refresh_state(pending_order, actions, db):
                 if actions[index] == 'cancel':
                     borrow_service.cancel_borrow_order(session, order_id, user)
                 else:
-                    method = getattr(borrow_approval_service, actions[index] + '_task')
-                    method(session, uuid.UUID(order['approval_tasks'][index]['id']), user)
+                    action = 'approve' if actions[index] == 'same' else actions[index]
+                    task_index = 0 if actions[index] == 'same' else index
+                    method = getattr(borrow_approval_service, action + '_task')
+                    method(session, uuid.UUID(order['approval_tasks'][task_index]['id']), user)
                 return 200
             except HTTPException as exc:
                 session.rollback()
@@ -60,6 +62,10 @@ def test_concurrent_borrow_decisions_refresh_state(pending_order, actions, db):
     elif actions == ('approve', 'reject'):
         assert updated.status.value == 'REJECTED'
         assert 'PENDING' not in statuses
+    elif actions == ('same', 'same'):
+        assert sorted(outcomes) == [200, 400]
+        assert statuses == {'APPROVED', 'PENDING'}
+        assert updated.status.value == 'PARTIALLY_APPROVED'
     else:
         assert sorted(outcomes) == [200, 400]
         assert updated.status.value in {'CANCELLED', 'PARTIALLY_APPROVED'}
@@ -68,11 +74,15 @@ def test_concurrent_borrow_decisions_refresh_state(pending_order, actions, db):
 
 def test_order_and_attachment_scope_matches_download(client, db, pending_order, auth_headers):
     order, managers = pending_order
-    _, stranger_headers = _login_as_role(client, db, 'review_stranger', UserRole.ASSET_ADMIN)
+    stranger, stranger_headers = _login_as_role(client, db, 'review_stranger', UserRole.ASSET_ADMIN)
     order_url = f"/api/v1/equipment-orders/{order['equipment_order_id']}"
     assert client.get('/api/v1/equipment-orders', headers=stranger_headers).json()['data']['total'] == 0
     assert client.get(order_url, headers=stranger_headers).status_code == 403
     assert client.get(order_url + '/timeline', headers=stranger_headers).status_code == 403
+    assert client.get('/api/v1/borrow-orders', headers=stranger_headers).json()['data']['total'] == 0
+    assert client.get(f"/api/v1/audit-logs/order-timeline/{order['id']}", headers=stranger_headers).status_code == 403
+    logs = client.get('/api/v1/audit-logs', headers=stranger_headers).json()['data']['items']
+    assert logs and {entry['actor_id'] for entry in logs} == {str(stranger.id)}
     assert client.get('/api/v1/equipment-orders', headers=managers[0][1]).json()['data']['total'] == 1
     upload = client.post('/api/v1/attachments', headers=auth_headers,
         files={'file': ('fixture.png', _build_image_bytes(), 'image/png')},

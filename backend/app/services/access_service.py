@@ -1,7 +1,6 @@
 """Shared order scope for lists, details, and workflow attachments."""
 from fastapi import HTTPException
 from sqlalchemy import or_, select
-from sqlalchemy.orm import lazyload
 
 from app.models.borrow_order import BorrowOrder
 from app.models.borrow_order_item import BorrowOrderItem

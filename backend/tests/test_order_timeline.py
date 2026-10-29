@@ -2,6 +2,19 @@
 from tests.conftest import TestSession
 from app.models.user import User
 from app.utils.enums import UserRole, UserStatus
+from app.models.equipment_order import EquipmentOrder
+from app.models.borrow_order import BorrowOrder
+from app.services import audit_service
+import uuid
+
+
+def _order(db, applicant_id):
+    parent = EquipmentOrder(id=uuid.uuid4(), order_no='TIMELINE-FIX', applicant_id=uuid.UUID(applicant_id))
+    order = BorrowOrder(id=uuid.uuid4(), order_no='TIMELINE-FIX', equipment_order_id=parent.id,
+                        applicant_id=uuid.UUID(applicant_id))
+    db.add_all([parent, order])
+    db.commit()
+    return order
 
 
 def _make_user(client, username, role=UserRole.USER):
@@ -35,19 +48,22 @@ def test_timeline_forbidden_for_non_owner(client, db):
     uid_b, _ = _make_user(client, "tl_user_b")
     headers_a = {"Authorization": f"Bearer {token_a}"}
 
-    # Use a random UUID — no matching order exists, so non-admin gets 403
-    import uuid
-    fake_order_id = str(uuid.uuid4())
-    res = client.get(f"/api/v1/audit-logs/order-timeline/{fake_order_id}", headers=headers_a)
+    order = _order(db, uid_b)
+    res = client.get(f"/api/v1/audit-logs/order-timeline/{order.id}", headers=headers_a)
     assert res.status_code == 403
 
 
 def test_timeline_admin_can_view_any(client, db):
-    """An admin can view timeline for any order (even non-existent — returns empty)."""
+    """A super administrator can view another applicant's existing order."""
     _, token = _make_user(client, "tl_admin", UserRole.SUPER_ADMIN)
     headers = {"Authorization": f"Bearer {token}"}
 
-    import uuid
-    res = client.get(f"/api/v1/audit-logs/order-timeline/{uuid.uuid4()}", headers=headers)
+    applicant_id, _ = _make_user(client, 'tl_applicant')
+    order = _order(db, applicant_id)
+    audit_service.log(db, uuid.UUID(applicant_id), 'BORROW_ORDER_CREATE', order_id=order.id,
+                      equipment_order_id=order.equipment_order_id)
+    db.commit()
+    res = client.get(f"/api/v1/audit-logs/order-timeline/{order.id}", headers=headers)
     assert res.status_code == 200
-    assert res.json()["data"] == []
+    assert res.json()["data"][0]['action'] == 'BORROW_ORDER_CREATE'
+    assert client.get(f"/api/v1/audit-logs/order-timeline/{uuid.uuid4()}", headers=headers).status_code == 404

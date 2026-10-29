@@ -9,6 +9,11 @@ from app.models.borrow_approval_task import BorrowApprovalTask
 from app.models.borrow_order import BorrowOrder
 from app.models.equipment_order import EquipmentOrder
 from app.models.user import User
+from app.models.asset import Asset
+from app.models.borrow_order_item import BorrowOrderItem
+from app.models.return_order import ReturnOrder
+from app.models.return_order_item import ReturnOrderItem
+from app.models.return_approval_task import ReturnApprovalTask
 from app.services import equipment_order_service
 from app.utils.enums import BorrowOrderStatus, EquipmentOrderStatus, UserRole, UserStatus
 
@@ -51,11 +56,24 @@ def test_order_pagination_query_budget(db, size):
 
 def test_borrow_approval_and_summary_query_budget(client, db, auth_headers):
     user = db.query(User).filter(User.username == 'admin_test').one()
+    asset = Asset(id=uuid.uuid4(), name='Query device', asset_code='QUERY001', admin_id=user.id, created_by=user.id)
+    db.add(asset)
+    db.flush()
     for i in range(20):
         parent = EquipmentOrder(id=uuid.uuid4(), order_no=f'A{i}', applicant_id=user.id, item_count=0)
         order = BorrowOrder(id=uuid.uuid4(), equipment_order_id=parent.id, order_no=f'A{i}', applicant_id=user.id)
         db.add_all([parent, order])
-        db.add(BorrowApprovalTask(order_id=order.id, approver_id=user.id, item_ids=[]))
+        item = BorrowOrderItem(id=uuid.uuid4(), order_id=order.id, asset_id=asset.id,
+            asset_code_snapshot=asset.asset_code, asset_name_snapshot=asset.name,
+            admin_id_snapshot=user.id, admin_name_snapshot=user.full_name)
+        returned = ReturnOrder(id=uuid.uuid4(), order_no=f'R{i}', equipment_order_id=parent.id,
+                               borrow_order_id=order.id, applicant_id=user.id, item_count=1)
+        returned_item = ReturnOrderItem(id=uuid.uuid4(), return_order_id=returned.id, borrow_order_item_id=item.id,
+            asset_id=asset.id, asset_code_snapshot=asset.asset_code, asset_name_snapshot=asset.name,
+            admin_id_snapshot=user.id, admin_name_snapshot=user.full_name, condition='GOOD')
+        db.add_all([item, returned, returned_item])
+        db.add(BorrowApprovalTask(order_id=order.id, approver_id=user.id, item_ids=[item.id]))
+        db.add(ReturnApprovalTask(return_order_id=returned.id, approver_id=user.id, item_ids=[returned_item.id]))
     db.commit()
     db.expunge_all()
     with sql_counter(db) as statements:
@@ -63,6 +81,13 @@ def test_borrow_approval_and_summary_query_budget(client, db, auth_headers):
     assert response.status_code == 200
     assert response.json()['data']['total'] == 20
     assert len(statements) <= 6  # Includes authentication; no per-task statements.
+    assert len(response.json()['data']['items'][0]['item_details']) == 1
+    print(f'borrow_approval_page=20 sql_including_auth={len(statements)}')
+    with sql_counter(db) as statements:
+        response = client.get('/api/v1/return-approval-tasks', headers=auth_headers)
+    assert response.status_code == 200 and response.json()['data']['total'] == 20
+    assert len(statements) <= 7
+    print(f'return_approval_page=20 sql_including_auth={len(statements)}')
     with sql_counter(db) as statements:
         response = client.get('/api/v1/dashboard/summary', headers=auth_headers)
     assert response.status_code == 200

@@ -203,8 +203,14 @@ def list_borrow_orders(
     status_filter: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    viewer=None,
 ) -> tuple[list[BorrowOrder], int]:
     q = db.query(BorrowOrder)
+    if viewer is not None:
+        from sqlalchemy import select
+        from app.models.equipment_order import EquipmentOrder
+        from app.services.access_service import equipment_order_scope
+        q = q.filter(BorrowOrder.equipment_order_id.in_(select(EquipmentOrder.id).where(equipment_order_scope(viewer))))
     if applicant_id:
         q = q.filter(BorrowOrder.applicant_id == applicant_id)
     if managed_admin_id:

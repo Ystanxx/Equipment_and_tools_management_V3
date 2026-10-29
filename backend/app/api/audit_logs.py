@@ -10,6 +10,7 @@ from app.models.return_order import ReturnOrder
 from app.schemas.audit_log import AuditLogOut
 from app.schemas.common import ResponseSchema, PaginatedData
 from app.services import audit_service
+from app.services.access_service import require_order_access
 from app.utils.enums import UserRole
 
 router = APIRouter(prefix="/audit-logs", tags=["审计日志"])
@@ -32,6 +33,7 @@ def list_logs(
         order_id=order_id,
         page=page,
         page_size=page_size,
+        viewer=user,
     )
     out = [AuditLogOut.model_validate(l) for l in items]
     return ResponseSchema(data=PaginatedData(items=out, total=total, page=page, page_size=page_size))
@@ -44,12 +46,12 @@ def order_timeline(
     user: User = Depends(get_active_user),
 ):
     """Return audit logs for a specific order. Accessible to the order applicant or admins."""
-    is_admin = user.role in (UserRole.ASSET_ADMIN, UserRole.SUPER_ADMIN)
-    if not is_admin:
-        bo = db.query(BorrowOrder).filter(BorrowOrder.id == order_id).first()
-        ro = db.query(ReturnOrder).filter(ReturnOrder.id == order_id).first()
-        if not ((bo and bo.applicant_id == user.id) or (ro and ro.applicant_id == user.id)):
-            raise HTTPException(status_code=403, detail="无权查看该订单时间线")
+    parent = db.query(BorrowOrder.equipment_order_id).filter(BorrowOrder.id == order_id).first()
+    if not parent:
+        parent = db.query(ReturnOrder.equipment_order_id).filter(ReturnOrder.id == order_id).first()
+    if not parent:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    require_order_access(db, parent[0], user)
 
     items, _ = audit_service.list_logs(db=db, order_id=order_id, page=1, page_size=100)
     items.reverse()  # chronological order (oldest first)

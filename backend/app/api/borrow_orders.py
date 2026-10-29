@@ -101,6 +101,7 @@ def list_orders(
         db=db,
         applicant_id=applicant_id,
         managed_admin_id=managed_admin_id,
+        viewer=user,
         status_filter=status,
         page=page,
         page_size=page_size,
@@ -132,8 +133,8 @@ def get_order(
     user: User = Depends(get_active_user),
 ):
     order = borrow_service.get_borrow_order(db, order_id)
-    if not borrow_service.user_can_access_borrow_order(order, user):
-        raise HTTPException(status_code=403, detail="无权查看该借用单")
+    from app.services.access_service import require_order_access
+    require_order_access(db, order.equipment_order_id, user)
     return ResponseSchema(data=_order_to_out(order, user))
 
 

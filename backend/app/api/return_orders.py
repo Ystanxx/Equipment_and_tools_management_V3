@@ -104,6 +104,7 @@ def list_orders(
         db=db,
         applicant_id=applicant_id,
         managed_admin_id=managed_admin_id,
+        viewer=user,
         borrow_order_id=borrow_order_id,
         status_filter=status,
         page=page,
@@ -136,8 +137,8 @@ def get_order(
     user: User = Depends(get_active_user),
 ):
     order = return_service.get_return_order(db, order_id)
-    if not return_service.user_can_access_return_order(order, user):
-        raise HTTPException(status_code=403, detail="无权查看该归还单")
+    from app.services.access_service import require_order_access
+    require_order_access(db, order.equipment_order_id, user)
     return ResponseSchema(data=_order_to_out(order, user))
 
 

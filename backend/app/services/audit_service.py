@@ -39,8 +39,17 @@ def list_logs(
     order_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 50,
+    viewer=None,
 ) -> tuple[list[AuditLog], int]:
     q = db.query(AuditLog)
+    if viewer is not None:
+        from sqlalchemy import or_, select
+        from app.models.equipment_order import EquipmentOrder
+        from app.services.access_service import equipment_order_scope
+        from app.utils.enums import UserRole
+        if viewer.role != UserRole.SUPER_ADMIN:
+            q = q.filter(or_(AuditLog.actor_id == viewer.id, AuditLog.equipment_order_id.in_(
+                select(EquipmentOrder.id).where(equipment_order_scope(viewer)))))
     if action:
         q = q.filter(AuditLog.action == action)
     if target_type:
