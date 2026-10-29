@@ -1460,5 +1460,6 @@
 }
 
 @media (max-width:768px) {
-  .approval-task-card__action-group .btn { flex:1; min-width:0; }
+  .approval-task-card__action-group { display:flex; flex-wrap:nowrap; }
+  .approval-task-card__action-group .btn { flex:1; min-width:0; padding-inline:4px; }
 }
