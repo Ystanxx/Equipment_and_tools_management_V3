@@ -37,5 +37,3 @@ def _to_pinyin_initials(name: str) -> str:
         elif ch.isalpha():
             parts.append(ch.lower())
     return "".join(parts)
-
-

@@ -14,5 +14,3 @@ def test_pinyin_search_matches_index_and_name_updates(client, db, auth_headers, 
                       json={'name': '示波器'}).status_code == 200
     assert client.get('/api/v1/assets?keyword=guangpu', headers=auth_headers).json()['data']['total'] == 0
     assert client.get('/api/v1/assets?keyword=shiboqi', headers=auth_headers).json()['data']['total'] == 1
-
-
