@@ -1,5 +1,11 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+import os
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = BACKEND_DIR.parent
+ENV_FILE = os.environ.get('EQUIPMENT_ENV_FILE') or (
+    ROOT_DIR / '.env' if (ROOT_DIR / '.env').exists() else BACKEND_DIR / '.env')
 
 
 class Settings(BaseSettings):
@@ -23,7 +29,7 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "器材管理系统"
     SMTP_FROM_EMAIL: str = ""
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {"env_file": ENV_FILE, "extra": "ignore"}
 
 
 settings = Settings()

@@ -13,34 +13,10 @@ from sqlalchemy.orm import Session
 from app.models.notification import Notification
 from app.models.user import User
 from app.services import system_config_service
+from app.services.email_outbox_service import enqueue
 from app.utils.enums import UserRole
 
 logger = logging.getLogger(__name__)
-
-
-def _should_send_email(db: Session) -> bool:
-    try:
-        return bool(system_config_service.get_config_value(db, "enable_email_notifications"))
-    except Exception:
-        return False
-
-
-def _try_send_email(db: Session, recipient_id: uuid.UUID, title: str, content: str):
-    """Best-effort email send — failures are logged, never raised."""
-    if not _should_send_email(db):
-        return
-    try:
-        recipient = db.query(User).filter(User.id == recipient_id).first()
-        if not recipient or not recipient.email or not recipient.email_notifications_enabled:
-            return
-        from app.services.email_service import send_notification_email
-        try:
-            send_notification_email(recipient.email, title, content, db=db)
-        except TypeError:
-            # 兼容测试或插件中仍使用三参数签名的 monkeypatch。
-            send_notification_email(recipient.email, title, content)
-    except Exception:
-        logger.exception("Failed to send notification email to user %s", recipient_id)
 
 
 def create(
@@ -54,13 +30,10 @@ def create(
     related_id: uuid.UUID | None = None,
 ) -> Notification | None:
     """Create a notification if in-app notifications are enabled."""
-    try:
-        enabled = system_config_service.get_config_value(db, "enable_in_app_notifications")
-        if not enabled:
-            _try_send_email(db, recipient_id, title, content)
-            return None
-    except Exception:
-        pass
+    enabled = system_config_service.get_config_value(db, "enable_in_app_notifications")
+    if not enabled:
+        enqueue(db, recipient_id, title, content)
+        return None
 
     n = Notification(
         recipient_id=recipient_id,
@@ -72,7 +45,7 @@ def create(
     )
     db.add(n)
 
-    _try_send_email(db, recipient_id, title, content)
+    enqueue(db, recipient_id, title, content)
     return n
 
 

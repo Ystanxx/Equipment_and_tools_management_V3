@@ -1,6 +1,8 @@
 from app.core.security import hash_password
 from app.models.user import User
 from app.services import email_service, notification_service
+from app.services.email_outbox_service import drain_outbox
+from tests.conftest import TestSession
 from app.utils.enums import UserRole, UserStatus
 
 
@@ -49,7 +51,7 @@ def test_email_delivery_respects_global_and_user_switch(client, db, monkeypatch)
 
     sent_messages: list[tuple[str, str, str]] = []
 
-    def fake_send_notification_email(to_email: str, title: str, content: str):
+    def fake_send_notification_email(to_email: str, title: str, content: str, **kwargs):
         sent_messages.append((to_email, title, content))
         return True
 
@@ -70,6 +72,7 @@ def test_email_delivery_respects_global_and_user_switch(client, db, monkeypatch)
         notification_type="SYSTEM",
     )
     db.commit()
+    drain_outbox(TestSession)
     assert sent_messages == [(recipient.email, "全局开启时发送", "内容1")]
 
     disable_user = client.put(
@@ -184,7 +187,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
 
     sent_messages: list[tuple[str, str, str]] = []
 
-    def fake_send_notification_email(to_email: str, title: str, content: str):
+    def fake_send_notification_email(to_email: str, title: str, content: str, **kwargs):
         sent_messages.append((to_email, title, content))
         return True
 
@@ -227,6 +230,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
     assert order_response.status_code == 200
     order_data = order_response.json()["data"]
     task_id = order_data["approval_tasks"][0]["id"]
+    drain_outbox(TestSession)
     assert sent_messages == [
         (
             asset_admin.email,
@@ -242,6 +246,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
     )
     assert approve_response.status_code == 200
 
+    drain_outbox(TestSession)
     sent_messages.clear()
     deliver_response = client.post(
         f"/api/v1/borrow-orders/{order_data['id']}/deliver",
@@ -249,6 +254,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
     )
 
     assert deliver_response.status_code == 200
+    drain_outbox(TestSession)
     assert sent_messages == [
         (
             applicant.email,
@@ -257,6 +263,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
         )
     ]
 
+    drain_outbox(TestSession)
     sent_messages.clear()
     borrow_detail = client.get(
         f"/api/v1/borrow-orders/{order_data['id']}",
@@ -279,6 +286,7 @@ def test_borrow_delivery_sends_email_to_applicant(client, db, asset_type_ids, mo
 
     assert return_response.status_code == 200
     return_data = return_response.json()["data"]
+    drain_outbox(TestSession)
     assert sent_messages == [
         (
             asset_admin.email,

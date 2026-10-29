@@ -28,6 +28,8 @@ def _build_test_db_url() -> str:
 
 
 TEST_DB_URL = _build_test_db_url()
+if not (make_url(TEST_DB_URL).database or '').endswith('_test'):
+    raise RuntimeError('Destructive test setup requires a database name ending in _test')
 
 
 def _ensure_test_database_exists() -> None:
