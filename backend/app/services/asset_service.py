@@ -19,45 +19,7 @@ from app.services.asset_number_service import generate_asset_code
 from app.utils.enums import UserRole, AssetStatus, PhotoType, BorrowOrderStatus
 from app.services import audit_service
 
-# ----- pinyin helpers -----
-import re
-from pypinyin import pinyin, Style as PinyinStyle
-
-_CJK_RE = re.compile(r"[一-鿿]")
-
-
-def _to_pinyin_full(name: str) -> str:
-    """将中文名称转为全拼小写，保留英文与数字，忽略符号"""
-    if not name:
-        return ""
-    name = str(name)
-    parts: list[str] = []
-    for ch in name:
-        if _CJK_RE.match(ch):
-            py = pinyin(ch, style=PinyinStyle.NORMAL, errors="ignore")
-            if py and py[0]:
-                parts.append(py[0][0])
-        elif ch.isalpha():
-            parts.append(ch.lower())
-        elif ch.isdigit():
-            parts.append(ch)
-    return "".join(parts)
-
-
-def _to_pinyin_initials(name: str) -> str:
-    """将中文名称转为首字母小写，保留英文字母首字母"""
-    if not name:
-        return ""
-    name = str(name)
-    parts: list[str] = []
-    for ch in name:
-        if _CJK_RE.match(ch):
-            py = pinyin(ch, style=PinyinStyle.FIRST_LETTER, errors="ignore")
-            if py and py[0]:
-                parts.append(py[0][0])
-        elif ch.isalpha():
-            parts.append(ch.lower())
-    return "".join(parts)
+from app.utils.asset_search import _to_pinyin_full, _to_pinyin_initials
 
 
 def _attach_inventory_previews(db: Session, items: list[Asset]) -> None:
@@ -185,8 +147,13 @@ def list_assets(
 ) -> tuple[list[Asset], int]:
     query = db.query(Asset).filter(Asset.is_active == True)
     if keyword:
-        like = f"%{keyword}%"
-        query = query.filter((Asset.name.ilike(like)) | (Asset.asset_code.ilike(like)))
+        normalized = ''.join(keyword.lower().split())
+        normalized_name = func.regexp_replace(func.lower(Asset.name), r'\s+', '', 'g')
+        normalized_code = func.regexp_replace(func.lower(Asset.asset_code), r'\s+', '', 'g')
+        query = query.filter(normalized_name.contains(normalized, autoescape=True) |
+                             normalized_code.contains(normalized, autoescape=True) |
+                             Asset.pinyin_full.contains(normalized, autoescape=True) |
+                             Asset.pinyin_initials.contains(normalized, autoescape=True))
     if asset_type_id:
         query = query.filter(Asset.asset_type_id == asset_type_id)
     if category_id:
@@ -231,6 +198,8 @@ def list_asset_search_index(db: Session) -> list[dict]:
             Asset.id,
             Asset.asset_code,
             Asset.name,
+            Asset.pinyin_full,
+            Asset.pinyin_initials,
             Asset.category_id,
             Asset.location_id,
             Asset.status,
@@ -256,8 +225,8 @@ def list_asset_search_index(db: Session) -> list[dict]:
             "location_name": row.location_name,
             "status": row.status,
             "display_status": row.status.value if row.status else None,
-            "pinyin_full": _to_pinyin_full(name),
-            "pinyin_initials": _to_pinyin_initials(name),
+            "pinyin_full": row.pinyin_full,
+            "pinyin_initials": row.pinyin_initials,
         })
     return results
 

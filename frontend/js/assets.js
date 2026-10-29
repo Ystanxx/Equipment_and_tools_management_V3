@@ -119,9 +119,9 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
           <div class="asset-search-wrap borrow-browser__search">
             <div class="search-bar asset-search-bar">
               ${Utils.svgIcon('search')}
-              <input type="text" id="user-search" placeholder="搜索编号、名称、分类" value="${Utils.escapeHtml(keyword)}" autocomplete="off">
+              <input type="text" id="user-search" aria-label="搜索器材名称、编号或拼音" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="asset-search-suggestions" placeholder="搜索名称、编号或拼音" value="${Utils.escapeHtml(keyword)}" autocomplete="off">
             </div>
-            <div id="asset-search-suggestions" class="asset-search-suggestions hidden"></div>
+            <div id="asset-search-suggestions" role="listbox" class="asset-search-suggestions hidden"></div>
           </div>
           <select id="user-page-size" class="form-select borrow-browser__page-size">
             ${[10, 20, 50, 100].map(size => `<option value="${size}" ${pageSize === size ? 'selected' : ''}>每页 ${size} 条</option>`).join('')}
@@ -197,16 +197,19 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
     if (!suggestionsWrap) return;
     if (!items || !items.length) {
       suggestionsWrap.classList.add('hidden');
+      searchInput.setAttribute('aria-expanded', 'false');
+      searchInput.removeAttribute('aria-activedescendant');
       suggestionsWrap.innerHTML = '';
       return;
     }
     suggestionsWrap.innerHTML = items.map(function (item, idx) {
-      return '<div class="asset-search-suggestion" data-index="' + idx + '">'
+      return '<div role="option" id="asset-suggestion-' + idx + '" aria-selected="false" class="asset-search-suggestion" data-index="' + idx + '">'
         + '<div class="asset-search-suggestion__name">' + Utils.escapeHtml(item.name) + '</div>'
         + '<div class="asset-search-suggestion__meta">' + Utils.escapeHtml(item.asset_code) + ' · ' + Utils.escapeHtml(item.category_name || '未分类') + ' · ' + Utils.escapeHtml(item.location_name || '未设置位置') + '</div>'
         + '</div>';
     }).join('');
     suggestionsWrap.classList.remove('hidden');
+    searchInput.setAttribute('aria-expanded', 'true');
   }
 
   function updateSuggestionHighlight() {
@@ -214,8 +217,11 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
     for (var i = 0; i < nodes.length; i++) {
       if (i === highlightedIndex) {
         nodes[i].classList.add('active');
+        nodes[i].setAttribute('aria-selected', 'true');
+        searchInput.setAttribute('aria-activedescendant', nodes[i].id);
       } else {
         nodes[i].classList.remove('active');
+        nodes[i].setAttribute('aria-selected', 'false');
       }
     }
   }
@@ -223,6 +229,8 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
   function closeSuggestions() {
     if (suggestionsWrap) {
       suggestionsWrap.classList.add('hidden');
+      searchInput.setAttribute('aria-expanded', 'false');
+      searchInput.removeAttribute('aria-activedescendant');
       suggestionsWrap.innerHTML = '';
     }
     currentSuggestions = [];
@@ -265,7 +273,7 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
         var sel = currentSuggestions[highlightedIndex];
         searchInput.value = sel.name;
         closeSuggestions();
-        Router.navigate('asset-list', { keyword: sel.name, status: statusFilter, category_id: categoryId, page_size: pageSize, page: 1 });
+        Router.navigate('asset-detail', {id: sel.id});
         return;
       }
       // 无高亮 → 原有回车搜索行为
@@ -284,7 +292,7 @@ function renderBorrowAssetList(app, assets, total, page, pageSize, keyword, stat
       if (!item) return;
       searchInput.value = item.name;
       closeSuggestions();
-      Router.navigate('asset-list', { keyword: item.name, status: statusFilter, category_id: categoryId, page_size: pageSize, page: 1 });
+      Router.navigate('asset-detail', {id: item.id});
     });
   }
 

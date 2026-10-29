@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import String, Text, Boolean, Date, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Text, Boolean, Date, ForeignKey, Enum as SAEnum, event, inspect
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -15,6 +15,8 @@ class Asset(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    pinyin_full: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    pinyin_initials: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     asset_type_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("asset_types.id"), nullable=True)
     category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("asset_categories.id"), nullable=True)
     location_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)
@@ -36,3 +38,12 @@ class Asset(Base):
     location = relationship("StorageLocation", lazy="joined")
     admin = relationship("User", foreign_keys=[admin_id], lazy="joined")
     creator = relationship("User", foreign_keys=[created_by], lazy="joined")
+
+
+@event.listens_for(Asset, "before_insert")
+@event.listens_for(Asset, "before_update")
+def update_search_fields(mapper, connection, asset):
+    if inspect(asset).attrs.name.history.has_changes() or not asset.pinyin_full:
+        from app.utils.asset_search import _to_pinyin_full, _to_pinyin_initials
+        asset.pinyin_full = _to_pinyin_full(asset.name)
+        asset.pinyin_initials = _to_pinyin_initials(asset.name)
