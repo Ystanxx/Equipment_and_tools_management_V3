@@ -8,6 +8,7 @@ from app.models.attachment import Attachment
 from app.models.user import User
 from app.schemas.common import ResponseSchema
 from app.services import attachment_service
+from app.services.system_config_service import get_config_value
 from app.services.access_service import require_attachment_context
 from app.services.attachment_access import image_path
 from app.utils.enums import PhotoType
@@ -15,12 +16,20 @@ from app.utils.enums import PhotoType
 router = APIRouter(prefix="/attachments", tags=["附件"])
 
 
+def _read_image(file, db):
+    max_mb = int(get_config_value(db, 'photo_max_upload_mb'))
+    content = file.file.read(max_mb * 1024 * 1024 + 1)
+    if len(content) > max_mb * 1024 * 1024:
+        raise HTTPException(400, f"文件大小超过 {max_mb}MB 限制")
+    return content
+
+
 @router.post("", summary="上传附件")
-async def upload_attachment(
+def upload_attachment(
     file: UploadFile = File(...),
     photo_type: str = Form(...),
     related_type: str = Form(...),
-    related_id: str = Form(...),
+    related_id: uuid.UUID = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user),
 ):
@@ -29,8 +38,8 @@ async def upload_attachment(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"无效的 photo_type: {photo_type}")
 
-    content = await file.read()
-    rid = uuid.UUID(related_id)
+    content = _read_image(file, db)
+    rid = related_id
     att = attachment_service.create_attachment(
         db,
         file_bytes=content,
@@ -53,7 +62,7 @@ async def upload_attachment(
 
 
 @router.post("/stage", summary="暂存附件")
-async def stage_attachment(
+def stage_attachment(
     file: UploadFile = File(...),
     photo_type: str = Form(...),
     db: Session = Depends(get_db),
@@ -64,7 +73,7 @@ async def stage_attachment(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"无效的 photo_type: {photo_type}")
 
-    content = await file.read()
+    content = _read_image(file, db)
     staged = attachment_service.stage_attachment(
         db,
         file_bytes=content,
@@ -88,7 +97,7 @@ async def stage_attachment(
 def finalize_attachment(
     stage_token: str = Form(...),
     related_type: str = Form(...),
-    related_id: str = Form(...),
+    related_id: uuid.UUID = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_active_user),
 ):
@@ -96,7 +105,7 @@ def finalize_attachment(
         db,
         stage_token=stage_token,
         related_type=related_type,
-        related_id=uuid.UUID(related_id),
+        related_id=related_id,
         user=user,
     )
     return ResponseSchema(data={

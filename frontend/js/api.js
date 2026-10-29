@@ -268,7 +268,28 @@ const Api = {
   stockInReturnOrder(id) { return this.post(`/return-orders/${id}/stock-in`); },
 
   // Attachments
-  async stageAttachment(file, photoType, options = {}) {
+  _uploadActive: 0,
+  _uploadQueue: [],
+  queueUpload(work) {
+    const token = this.getToken();
+    return new Promise((resolve, reject) => {
+      this._uploadQueue.push({work, resolve, reject, token});
+      this.pumpUploads();
+    });
+  },
+  pumpUploads() {
+    while (this._uploadActive < 2 && this._uploadQueue.length) {
+      const task = this._uploadQueue.shift();
+      this._uploadActive++;
+      Promise.resolve().then(() => {
+        if (this.getToken() !== task.token) throw new Error('登录状态已变化，请重新上传');
+        return task.work();
+      }).then(task.resolve, task.reject).finally(() => {this._uploadActive--; this.pumpUploads();});
+    }
+  },
+  stageAttachment(...args) { return this.queueUpload(() => this._stageAttachment(...args)); },
+  uploadAttachment(...args) { return this.queueUpload(() => this._uploadAttachment(...args)); },
+  async _stageAttachment(file, photoType, options = {}) {
     const form = new FormData();
     form.append('file', file);
     form.append('photo_type', photoType);
@@ -325,7 +346,7 @@ const Api = {
       xhr.send(form);
     });
   },
-  async uploadAttachment(file, photoType, relatedType, relatedId, options = {}) {
+  async _uploadAttachment(file, photoType, relatedType, relatedId, options = {}) {
     const form = new FormData();
     form.append('file', file);
     form.append('photo_type', photoType);

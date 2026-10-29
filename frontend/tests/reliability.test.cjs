@@ -59,6 +59,16 @@ test('hidden pages do not poll', async()=>{
   await c.pollInventoryState();
 });
 
+test('a cancelled shared summary is retried by the new page', async()=>{
+  const {context:c,evaluate:e}=setup(); let rejectFirst, count=0;
+  c.Api.getDashboardSummary=()=>++count===1 ? new Promise((resolve,reject)=>rejectFirst=reject) : Promise.resolve({data:{total_assets:6}});
+  const old=c.ensureNavigationState(); const next=c.ensureNavigationState();
+  rejectFirst(new DOMException('cancelled','AbortError'));
+  await Promise.all([old,next]);
+  assert.equal(e('_dashboardSummary.total_assets'),6);
+  assert.equal(count,2);
+});
+
 test('temporary bootstrap failure retains the logged-in session', async()=>{
   const {context:c,callbacks,evaluate:e}=setup();
   c.Api.me=async()=>{throw Object.assign(new Error('server unavailable'),{status:500});};
@@ -89,4 +99,16 @@ test('navigation never aborts a submitted mutation', async()=>{
   const route=new AbortController(); route.abort(); c.Api.routeSignal=route.signal;
   c.fetch=async()=>({status:200,ok:true,text:async()=>'{"data":true}'});
   assert.equal((await c.Api.post('/fixture',{})).data,true);
+});
+
+test('upload concurrency stays bounded and failures release slots', async()=>{
+  const {context:c}=setup(); let active=0,peak=0;
+  const jobs=Array.from({length:7},(_,i)=>c.Api.queueUpload(async()=>{
+    peak=Math.max(peak,++active);
+    await new Promise(resolve=>setTimeout(resolve,5));
+    active--; if(i===1) throw new Error('fixture'); return i;
+  }));
+  const results=await Promise.allSettled(jobs);
+  assert.equal(peak,2);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,6);
 });

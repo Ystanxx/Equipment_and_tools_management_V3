@@ -736,6 +736,7 @@ Router.register('return-approvals', async (params) => {
         <div class="approval-task-card__footer">
           ${t.comment ? `<div class="approval-task-card__comment">审批意见：${Utils.escapeHtml(t.comment)}</div>` : ''}
           <div class="approval-task-card__action-group">
+            <button type="button" class="btn btn--outline btn--sm approval-detail-button">查看详情</button>
             ${t.status === 'PENDING' ? `
               <button class="btn btn--primary btn--sm rt-approve-btn" data-id="${t.id}">通过</button>
               <button class="btn btn--danger btn--sm rt-reject-btn" data-id="${t.id}">驳回</button>

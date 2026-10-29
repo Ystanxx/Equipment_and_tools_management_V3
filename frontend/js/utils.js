@@ -178,11 +178,22 @@ const Utils = {
   },
 
   openLightbox(src) {
+    const previousFocus = document.activeElement;
     const overlay = document.createElement('div');
     overlay.className = 'lightbox-overlay';
-    overlay.innerHTML = `<img src="${src}">`;
-    overlay.addEventListener('click', () => overlay.remove());
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', '查看照片');
+    overlay.innerHTML = `<button type="button" class="btn lightbox-close" aria-label="关闭照片">关闭 ×</button><img src="${this.escapeHtml(src)}" alt="器材记录照片">`;
+    const close = () => { overlay.remove(); if (previousFocus?.isConnected) previousFocus.focus(); };
+    overlay.querySelector('button').addEventListener('click', close);
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    overlay.addEventListener('keydown', event => {
+      if (event.key === 'Escape') close();
+      if (event.key === 'Tab') { event.preventDefault(); overlay.querySelector('button').focus(); }
+    });
     document.body.appendChild(overlay);
+    overlay.querySelector('button').focus();
   },
 
   svgIcon(name) {

@@ -148,9 +148,20 @@ function showBorrowCartToast(target, message) {
   Utils.showToast(message, 'error');
 }
 
+function approvalDateNotice(order) {
+  if (!['PENDING_APPROVAL', 'PARTIALLY_APPROVED', 'READY_FOR_PICKUP'].includes(order.status)) return '';
+  const created = Date.parse(order.created_at);
+  const days = Number.isFinite(created) ? Math.max(0, Math.floor((Date.now() - created) / 86400000)) : 0;
+  const expected = order.expected_return_date ? Date.parse(order.expected_return_date + 'T23:59:59') : NaN;
+  const expired = Number.isFinite(expected) && expected < Date.now();
+  return `<p class="approval-age-notice" role="status">已等待 ${days} 天${expired ? ' · 预计归还日期已过，请在处理前确认借用需求仍有效。' : ''}</p>`;
+}
+
 function bindClickableApprovalCards(selector, onActivate) {
   document.querySelectorAll(selector).forEach(card => {
     card.tabIndex = 0;
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', '审批记录，按回车查看详情');
     const activate = () => {
       if (onActivate) {
         onActivate(card);
@@ -160,6 +171,7 @@ function bindClickableApprovalCards(selector, onActivate) {
       Router.navigate(card.dataset.route, { id: card.dataset.id });
     };
     card.addEventListener('click', (event) => {
+      if (event.target.closest('.approval-detail-button')) { activate(); return; }
       if (event.target.closest('button, a, input, select, textarea, label, img, [data-no-card-nav]')) {
         return;
       }
@@ -332,6 +344,7 @@ async function openBorrowApprovalPanel(task, params = {}) {
     <div class="approval-panel__section">
       <p class="text-sm text-muted">交付进度：${order.handoff_completed_count || 0}/${order.item_count} 件</p>
       <div class="approval-panel__grid">
+        ${approvalDateNotice(order)}
         <div class="approval-panel__field"><span class="approval-panel__label">申请人</span><span class="approval-panel__value">${Utils.escapeHtml(order.applicant_name || '-')}</span></div>
         <div class="approval-panel__field"><span class="approval-panel__label">创建时间</span><span class="approval-panel__value">${Utils.formatDateTime(order.created_at)}</span></div>
         <div class="approval-panel__field"><span class="approval-panel__label">器材数量</span><span class="approval-panel__value">${order.item_count} 件</span></div>
@@ -1108,6 +1121,7 @@ Router.register('borrow-approvals', async (params) => {
           <div class="approval-task-card__footer">
             <div class="approval-task-card__comment">已交付 ${order.handoff_completed_count || 0}/${order.item_count} 件，各管理员分别确认自己负责的设备。</div>
             <div class="approval-task-card__action-group">
+            <button type="button" class="btn btn--outline btn--sm approval-detail-button">查看详情</button>
               ${order.can_deliver ? `<button class="btn btn--primary btn--sm task-deliver-btn" data-id="${order.id}">确认交付 (${order.pending_deliver_count} 件)</button>` : '<span class="text-sm text-muted">本人负责设备已交付，等待其他管理员</span>'}
             </div>
           </div>
@@ -1147,6 +1161,7 @@ Router.register('borrow-approvals', async (params) => {
         <div class="approval-task-card__footer">
           ${t.comment ? `<div class="approval-task-card__comment">审批意见：${Utils.escapeHtml(t.comment)}</div>` : ''}
           <div class="approval-task-card__action-group">
+            <button type="button" class="btn btn--outline btn--sm approval-detail-button">查看详情</button>
             ${t.status === 'PENDING' ? `
               <button class="btn btn--primary btn--sm task-approve-btn" data-id="${t.id}">通过</button>
               <button class="btn btn--danger btn--sm task-reject-btn" data-id="${t.id}">驳回</button>

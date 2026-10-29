@@ -44,10 +44,10 @@ let _navigationLoadedAt = 0;
 let _navigationUserId = '';
 let _navigationToken = '';
 function updateNavigationBadges() {
-  const counts = {'managed-assets': _menuBadgeState.managedAssets, 'borrow-approvals': _menuBadgeState.borrowApprovals,
+  const counts = {dashboard: _menuBadgeState.borrowApprovals == null || _menuBadgeState.returnApprovals == null ? null : _menuBadgeState.borrowApprovals + _menuBadgeState.returnApprovals, 'managed-assets': _menuBadgeState.managedAssets, 'borrow-approvals': _menuBadgeState.borrowApprovals,
     'return-approvals': _menuBadgeState.returnApprovals, 'user-mgmt': _menuBadgeState.userMgmt, notifications: _unreadNotificationCount};
   Object.entries(counts).forEach(([route, count]) => {
-    document.querySelectorAll(`a[href="#${route}"]`).forEach(link => {
+    document.querySelectorAll(`a.sidebar__link[href="#${route}"], a.mobile-top-shell__link[href="#${route}"]`).forEach(link => {
       link.querySelectorAll('[data-menu-badge]').forEach(badge => badge.remove());
       if (count == null || count > 0) link.insertAdjacentHTML('beforeend', buildMenuBadge(route, count));
     });
@@ -62,7 +62,12 @@ async function ensureNavigationState(user = Api.getUser(), force = false) {
   const token = Api.getToken();
   const sameSession = _navigationUserId === user.id && _navigationToken === token;
   if (!force && sameSession && Date.now() - _navigationLoadedAt < 25000) return;
-  if (sameSession && _navigationRequest) { try { await _navigationRequest; } catch {} return; }
+  if (sameSession && _navigationRequest) {
+    try { await _navigationRequest; } catch {}
+    // The previous route may have cancelled a shared request during login/navigation.
+    if (!_dashboardSummary && !_navigationError && !Api.routeSignal?.aborted) return ensureNavigationState(user, force);
+    return;
+  }
   if (!sameSession) {
     _dashboardSummary = null;
     _navigationError = false;
@@ -202,15 +207,24 @@ function renderMobileTopShell(active, bodyContent, links, options = {}) {
     { name: 'profile', label: '个人中心', icon: 'users' },
     { label: '退出', icon: 'logout', onclick: 'handleLogout()' },
   ];
+  const admin = menuKey.startsWith('admin');
+  const primary = admin ? [
+    menuLink('dashboard', '待办', {badge: buildMenuBadge('dashboard', _menuBadgeState.borrowApprovals == null || _menuBadgeState.returnApprovals == null ? null : _menuBadgeState.borrowApprovals + _menuBadgeState.returnApprovals)}),
+    menuLink('asset-list', '器材'), menuLink('my-orders', '我的'),
+  ] : [menuLink('asset-list', '器材'), menuLink('borrow-cart', '借用单'), menuLink('my-orders', '我的')];
+  const names = new Set(primary.map(link => link.name));
+  const more = [...links.filter(link => !names.has(link.name)), ...actionLinks];
   return `
     <div class="page--mobile">
       <div class="mobile-top-shell" data-menu-key="${menuKey}">
         <img src="/logo.svg" alt="Lily Lab 器材借还" class="mobile-top-shell__brand-logo" />
-        <div class="mobile-top-shell__menu">
-          <div class="mobile-top-shell__scroll">
-            ${[...links, ...actionLinks].map(item => renderMobileTopLink(item, active)).join('')}
-          </div>
-        </div>
+        <nav class="mobile-primary-nav" aria-label="主要导航">
+          ${primary.map(item => renderMobileTopLink(item, active)).join('')}
+          <details class="mobile-more-menu">
+            <summary class="mobile-top-shell__link">更多</summary>
+            <div class="mobile-more-menu__items">${more.map(item => renderMobileTopLink(item, active)).join('')}</div>
+          </details>
+        </nav>
       </div>
       <div class="page" style="padding-top:${compact ? '8px' : '20px'};">${bodyContent}</div>
     </div>`;
